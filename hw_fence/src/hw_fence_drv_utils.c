@@ -10,6 +10,9 @@
 #include <linux/gunyah/gh_dbl.h>
 #include <linux/qcom_scm.h>
 #include <linux/version.h>
+#if (KERNEL_VERSION(6, 1, 0) <= LINUX_VERSION_CODE)
+#include <linux/gh_cpusys_vm_mem_access.h>
+#endif
 #include <soc/qcom/secure_buffer.h>
 
 #include "hw_fence_drv_priv.h"
@@ -55,6 +58,12 @@
  * the enum hw_fence_client_id
  */
 #define HW_FENCE_LOOPBACK_CLIENTS_MASK 0x7fff
+
+/**
+ * HW_FENCE_MAX_EVENTS:
+ * Maximum number of HW Fence debug events
+ */
+#define HW_FENCE_MAX_EVENTS 1000
 
 /**
  * struct hw_fence_client_types - Table describing all supported client types, used to parse
@@ -336,12 +345,23 @@ static int hw_fence_gunyah_share_mem(struct hw_fence_driver_data *drv_data,
 	return ret;
 }
 
+static int _is_mem_shared(struct resource *res)
+{
+#if (KERNEL_VERSION(6, 1, 0) <= LINUX_VERSION_CODE)
+	return gh_cpusys_vm_get_share_mem_info(res);
+#else
+	return -EINVAL;
+#endif
+}
+
 static int hw_fence_rm_cb(struct notifier_block *nb, unsigned long cmd, void *data)
 {
 	struct gh_rm_notif_vm_status_payload *vm_status_payload;
 	struct hw_fence_driver_data *drv_data;
+	struct resource res;
 	gh_vmid_t peer_vmid;
 	gh_vmid_t self_vmid;
+	int ret;
 
 	drv_data = container_of(nb, struct hw_fence_driver_data, rm_nb);
 
@@ -374,11 +394,25 @@ static int hw_fence_rm_cb(struct notifier_block *nb, unsigned long cmd, void *da
 
 	switch (vm_status_payload->vm_status) {
 	case GH_RM_VM_STATUS_READY:
-		HWFNC_DBG_INIT("init mem\n");
-		if (hw_fence_gunyah_share_mem(drv_data, self_vmid, peer_vmid))
-			HWFNC_ERR("failed to share memory\n");
-		else
-			drv_data->vm_ready = true;
+		ret = _is_mem_shared(&res);
+		if (ret) {
+			HWFNC_DBG_INIT("mem not shared ret:%d, attempt share\n", ret);
+			if (hw_fence_gunyah_share_mem(drv_data, self_vmid, peer_vmid))
+				HWFNC_ERR("failed to share memory\n");
+			else
+				drv_data->vm_ready = true;
+		} else {
+			if (drv_data->res.start == res.start &&
+					resource_size(&drv_data->res) == resource_size(&res)) {
+				drv_data->vm_ready = true;
+				HWFNC_DBG_INIT("mem_ready: add:0x%x size:%d ret:%d\n", res.start,
+					resource_size(&res), ret);
+			} else {
+				HWFNC_ERR("mem-shared mismatch:[0x%x,%d] expected:[0x%x,%d]\n",
+					res.start, resource_size(&res), drv_data->res.start,
+					resource_size(&drv_data->res));
+			}
+		}
 		break;
 	case GH_RM_VM_STATUS_RESET:
 		HWFNC_DBG_INIT("reset\n");
@@ -472,6 +506,8 @@ char *_get_mem_reserve_type(enum hw_fence_mem_reserve type)
 		return "HW_FENCE_MEM_RESERVE_TABLE";
 	case HW_FENCE_MEM_RESERVE_CLIENT_QUEUE:
 		return "HW_FENCE_MEM_RESERVE_CLIENT_QUEUE";
+	case HW_FENCE_MEM_RESERVE_EVENTS_BUFF:
+		return "HW_FENCE_MEM_RESERVE_EVENTS_BUFF";
 	}
 
 	return "Unknown";
@@ -483,6 +519,8 @@ int hw_fence_utils_reserve_mem(struct hw_fence_driver_data *drv_data,
 {
 	int ret = 0;
 	u32 start_offset = 0;
+	u32 remaining_size_bytes;
+	u32 total_events;
 
 	switch (type) {
 	case HW_FENCE_MEM_RESERVE_CTRL_QUEUE:
@@ -511,6 +549,22 @@ int hw_fence_utils_reserve_mem(struct hw_fence_driver_data *drv_data,
 
 		start_offset = drv_data->hw_fence_client_queue_size[client_id].start_offset;
 		*size = drv_data->hw_fence_client_queue_size[client_id].type->mem_size;
+		break;
+	case HW_FENCE_MEM_RESERVE_EVENTS_BUFF:
+		start_offset = drv_data->used_mem_size;
+		remaining_size_bytes = drv_data->size - start_offset;
+		if (start_offset >= drv_data->size ||
+				remaining_size_bytes < sizeof(struct msm_hw_fence_event)) {
+			HWFNC_DBG_INFO("no space for events total_sz:%lu offset:%lu evt_sz:%lu\n",
+				drv_data->size, start_offset, sizeof(struct msm_hw_fence_event));
+			ret = -ENOMEM;
+			goto exit;
+		}
+
+		total_events = remaining_size_bytes / sizeof(struct msm_hw_fence_event);
+		if (total_events > HW_FENCE_MAX_EVENTS)
+			total_events = HW_FENCE_MAX_EVENTS;
+		*size = total_events * sizeof(struct msm_hw_fence_event);
 		break;
 	default:
 		HWFNC_ERR("Invalid mem reserve type:%d\n", type);
