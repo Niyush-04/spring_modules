@@ -854,7 +854,7 @@ static void icnss_send_wlan_boot_complete(void)
 	icnss_pr_info("sent wlan boot complete command\n");
 }
 
-static void icnss_wait_for_slate_complete(struct icnss_priv *priv)
+static int icnss_wait_for_slate_complete(struct icnss_priv *priv)
 {
 	if (!test_bit(ICNSS_SLATE_UP, &priv->state)) {
 		reinit_completion(&priv->slate_boot_complete);
@@ -863,15 +863,21 @@ static void icnss_wait_for_slate_complete(struct icnss_priv *priv)
 		wait_for_completion(&priv->slate_boot_complete);
 	}
 
+	if (!test_bit(ICNSS_SLATE_UP, &priv->state))
+		return -EINVAL;
+
 	icnss_send_wlan_boot_init();
+
+	return 0;
 }
 #else
 static void icnss_send_wlan_boot_complete(void)
 {
 }
 
-static void icnss_wait_for_slate_complete(struct icnss_priv *priv)
+static int icnss_wait_for_slate_complete(struct icnss_priv *priv)
 {
+	return 0;
 }
 #endif
 
@@ -890,6 +896,14 @@ static int icnss_driver_event_server_arrive(struct icnss_priv *priv,
 	clear_bit(ICNSS_FW_DOWN, &priv->state);
 	clear_bit(ICNSS_FW_READY, &priv->state);
 
+	if (priv->is_slate_rfa) {
+		ret = icnss_wait_for_slate_complete(priv);
+		if (ret == -EINVAL) {
+			icnss_pr_err("Slate complete failed\n");
+			return ret;
+		}
+	}
+
 	icnss_ignore_fw_timeout(false);
 
 	if (test_bit(ICNSS_WLFW_CONNECTED, &priv->state)) {
@@ -902,9 +916,6 @@ static int icnss_driver_event_server_arrive(struct icnss_priv *priv,
 		goto fail;
 
 	set_bit(ICNSS_WLFW_CONNECTED, &priv->state);
-
-	if (priv->is_slate_rfa)
-		icnss_wait_for_slate_complete(priv);
 
 	ret = wlfw_ind_register_send_sync_msg(priv);
 	if (ret < 0) {
@@ -2224,6 +2235,9 @@ static int icnss_modem_notifier_nb(struct notifier_block *nb,
 
 	switch (code) {
 	case QCOM_SSR_BEFORE_SHUTDOWN:
+		if (priv->is_slate_rfa)
+			complete(&priv->slate_boot_complete);
+
 		if (!notif->crashed &&
 		    priv->low_power_support) { /* Hibernate */
 			if (test_bit(ICNSS_MODE_ON, &priv->state))
@@ -3342,6 +3356,9 @@ int icnss_get_soc_info(struct device *dev, struct icnss_soc_info *info)
 		WLFW_MAX_TIMESTAMP_LEN + 1);
 	strlcpy(info->fw_build_id, priv->fw_build_id,
 	        ICNSS_WLFW_MAX_BUILD_ID_LEN + 1);
+	info->rd_card_chain_cap = priv->rd_card_chain_cap;
+	info->phy_he_channel_width_cap = priv->phy_he_channel_width_cap;
+	info->phy_qam_cap = priv->phy_qam_cap;
 
 	return 0;
 }
@@ -4282,14 +4299,13 @@ static int icnss_resource_parse(struct icnss_priv *priv)
 
 		icnss_get_msi_assignment(priv);
 		for (i = 0; i < priv->msi_config->total_vectors; i++) {
-			res = platform_get_resource(priv->pdev,
-						    IORESOURCE_IRQ, i);
-			if (!res) {
+			irq = platform_get_irq(priv->pdev, i);
+			if (irq < 0) {
 				icnss_pr_err("Fail to get IRQ-%d\n", i);
 				ret = -ENODEV;
 				goto put_clk;
 			} else {
-				priv->srng_irqs[i] = res->start;
+				priv->srng_irqs[i] = irq;
 			}
 		}
 	}
@@ -4397,8 +4413,8 @@ static int icnss_smmu_fault_handler(struct iommu_domain *domain,
 
 	icnss_trigger_recovery(&priv->pdev->dev);
 
-	/* IOMMU driver requires non-zero return value to print debug info. */
-	return -EINVAL;
+	/* IOMMU driver requires -ENOSYS return value to print debug info. */
+	return -ENOSYS;
 }
 
 static int icnss_smmu_dt_parse(struct icnss_priv *priv)
@@ -4604,7 +4620,7 @@ static void rproc_restart_level_notifier(void *data, struct rproc *rproc)
 	}
 }
 
-#ifdef CONFIG_WCNSS_MEM_PRE_ALLOC
+#if IS_ENABLED(CONFIG_WCNSS_MEM_PRE_ALLOC)
 static void icnss_initialize_mem_pool(unsigned long device_id)
 {
 	cnss_initialize_prealloc_pool(device_id);
@@ -4737,7 +4753,7 @@ static int icnss_probe(struct platform_device *pdev)
 
 		init_completion(&priv->smp2p_soc_wake_wait);
 		icnss_runtime_pm_init(priv);
-		icnss_aop_mbox_init(priv);
+		icnss_aop_interface_init(priv);
 		set_bit(ICNSS_COLD_BOOT_CAL, &priv->state);
 		priv->bdf_download_support = true;
 		register_trace_android_vh_rproc_recovery_set(rproc_restart_level_notifier, NULL);
@@ -4829,6 +4845,7 @@ static int icnss_remove(struct platform_device *pdev)
 	complete_all(&priv->unblock_shutdown);
 
 	if (priv->is_slate_rfa) {
+		complete(&priv->slate_boot_complete);
 		icnss_slate_ssr_unregister_notifier(priv);
 		icnss_unregister_slate_event_notifier(priv);
 	}
@@ -4848,8 +4865,6 @@ static int icnss_remove(struct platform_device *pdev)
 	    priv->device_id == WCN6450_DEVICE_ID) {
 		icnss_genl_exit();
 		icnss_runtime_pm_deinit(priv);
-		if (!IS_ERR_OR_NULL(priv->mbox_chan))
-			mbox_free_channel(priv->mbox_chan);
 		unregister_trace_android_vh_rproc_recovery_set(rproc_restart_level_notifier, NULL);
 		complete_all(&priv->smp2p_soc_wake_wait);
 		icnss_destroy_ramdump_device(priv->m3_dump_phyareg);
@@ -4859,6 +4874,7 @@ static int icnss_remove(struct platform_device *pdev)
 		icnss_destroy_ramdump_device(priv->m3_dump_phyapdmem);
 		if (priv->soc_wake_wq)
 			destroy_workqueue(priv->soc_wake_wq);
+		icnss_aop_interface_deinit(priv);
 	}
 
 	class_destroy(priv->icnss_ramdump_class);
@@ -4884,6 +4900,10 @@ static int icnss_remove(struct platform_device *pdev)
 void icnss_recovery_timeout_hdlr(struct timer_list *t)
 {
 	struct icnss_priv *priv = from_timer(priv, t, recovery_timer);
+
+	/* This is to handle if slate is not up and modem SSR is triggered */
+	if (priv->is_slate_rfa && !test_bit(ICNSS_SLATE_UP, &priv->state))
+		return;
 
 	icnss_pr_err("Timeout waiting for FW Ready 0x%lx\n", priv->state);
 	ICNSS_ASSERT(0);
