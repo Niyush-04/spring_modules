@@ -37,7 +37,7 @@
 #include "msm_vidc_ravelin.h"
 #endif
 #if defined(CONFIG_MSM_VIDC_BLAIR)
-#include "msm_vidc_blair.h"
+#include "../../blair/inc/msm_vidc_blair.h"
 #endif
 #if defined(CONFIG_MSM_VIDC_NEO)
 #include "msm_vidc_neo.h"
