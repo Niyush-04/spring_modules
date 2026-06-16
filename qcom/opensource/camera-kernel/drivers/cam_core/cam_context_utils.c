@@ -32,6 +32,127 @@ static inline int cam_context_validate_thread(void)
 	return 0;
 }
 
+static void cam_context_free_mem_hw_entries(struct cam_context *ctx)
+{
+	int  i;
+	if (ctx->out_map_entries) {
+		for (i = 0; i < ctx->req_size; i++) {
+			kfree(ctx->out_map_entries[i]);
+			ctx->out_map_entries[i] = NULL;
+		}
+
+		kfree(ctx->out_map_entries);
+		ctx->out_map_entries = NULL;
+	}
+
+	if (ctx->in_map_entries) {
+		for (i = 0; i < ctx->req_size; i++) {
+			kfree(ctx->in_map_entries[i]);
+			ctx->in_map_entries[i] = NULL;
+		}
+
+		kfree(ctx->in_map_entries);
+		ctx->in_map_entries = NULL;
+	}
+
+	if (ctx->hw_update_entry) {
+		for (i = 0; i < ctx->req_size; i++) {
+			kfree(ctx->hw_update_entry[i]);
+			ctx->hw_update_entry[i] = NULL;
+		}
+
+		kfree(ctx->hw_update_entry);
+		ctx->hw_update_entry = NULL;
+	}
+}
+
+static int cam_context_allocate_mem_hw_entries(struct cam_context *ctx)
+{
+	int rc = 0;
+	unsigned int i;
+	struct cam_ctx_request          *req;
+	struct cam_ctx_request          *temp_req;
+
+	CAM_DBG(CAM_CTXT,
+		"%s[%d] num: max_hw %u in_map %u out_map %u req %u",
+		ctx->dev_name,
+		ctx->ctx_id,
+		ctx->max_hw_update_entries,
+		ctx->max_in_map_entries,
+		ctx->max_out_map_entries,
+		ctx->req_size);
+
+	ctx->hw_update_entry = kcalloc(ctx->req_size,
+		sizeof(struct cam_hw_update_entry *), GFP_KERNEL);
+
+	if (!ctx->hw_update_entry) {
+		CAM_ERR(CAM_CTXT, "%s[%d] no memory for hw_update_entry",ctx->dev_name, ctx->ctx_id);
+		return -ENOMEM;
+	}
+
+	for (i = 0; i < ctx->req_size; i++) {
+		ctx->hw_update_entry[i] = kcalloc(ctx->max_hw_update_entries,
+			sizeof(struct cam_hw_update_entry), GFP_KERNEL);
+
+		if (!ctx->hw_update_entry[i]) {
+			CAM_ERR(CAM_CTXT, "%s[%d] no memory for hw_update_entry: %u",
+				ctx->dev_name, ctx->ctx_id, i);
+			rc = -ENOMEM;
+			goto free_mem;
+		}
+	}
+
+	ctx->in_map_entries = kcalloc(ctx->req_size, sizeof(struct cam_hw_fence_map_entry *),
+		GFP_KERNEL);
+
+	if (!ctx->in_map_entries) {
+		CAM_ERR(CAM_CTXT, "%s[%d] no memory for in_map_entries", ctx->dev_name, ctx->ctx_id);
+		rc = -ENOMEM;
+		goto free_mem;
+	}
+
+	for (i = 0; i < ctx->req_size; i++) {
+		ctx->in_map_entries[i] = kcalloc(ctx->max_in_map_entries,
+			sizeof(struct cam_hw_fence_map_entry), GFP_KERNEL);
+
+		if (!ctx->in_map_entries[i]) {
+			CAM_ERR(CAM_CTXT, "%s[%d] no memory for in_map_entries: %u",
+				ctx->dev_name, ctx->ctx_id, i);
+			rc = -ENOMEM;
+			goto free_mem;
+		}
+	}
+
+	ctx->out_map_entries = kcalloc(ctx->req_size, sizeof(struct cam_hw_fence_map_entry *),
+		GFP_KERNEL);
+	if (!ctx->out_map_entries) {
+		CAM_ERR(CAM_CTXT, "%s[%d] no memory for out_map_entries", ctx->dev_name, ctx->ctx_id);
+		goto free_mem;
+	}
+
+	for (i = 0; i < ctx->req_size; i++) {
+		ctx->out_map_entries[i] = kcalloc(ctx->max_out_map_entries,
+			sizeof(struct cam_hw_fence_map_entry), GFP_KERNEL);
+
+		if (!ctx->out_map_entries[i]) {
+			CAM_ERR(CAM_CTXT, "%s[%d] no memory for out_map_entries: %u",
+				ctx->dev_name, ctx->ctx_id, i);
+			rc = -ENOMEM;
+			goto free_mem;
+		}
+	}
+		list_for_each_entry_safe(req, temp_req, &ctx->free_req_list, list) {
+		req->hw_update_entries = ctx->hw_update_entry[req->index];
+		req->in_map_entries = ctx->in_map_entries[req->index];
+		req->out_map_entries = ctx->out_map_entries[req->index];
+	}
+
+	return rc;
+
+free_mem:
+	cam_context_free_mem_hw_entries(ctx);
+	return rc;
+}
 int cam_context_buf_done_from_hw(struct cam_context *ctx,
 	void *done_event_data, uint32_t evt_id)
 {
@@ -253,6 +374,7 @@ int32_t cam_context_release_dev_to_hw(struct cam_context *ctx,
 	arg.active_req = false;
 
 	ctx->hw_mgr_intf->hw_release(ctx->hw_mgr_intf->hw_mgr_priv, &arg);
+	cam_context_free_mem_hw_entries(ctx);
 	ctx->ctxt_to_hw_map = NULL;
 
 	ctx->session_hdl = -1;
@@ -361,9 +483,16 @@ int32_t cam_context_prepare_dev_to_hw(struct cam_context *ctx,
 		return -ENOMEM;
 	}
 
-	memset(req, 0, sizeof(*req));
 	INIT_LIST_HEAD(&req->list);
 	req->ctx = ctx;
+
+	req->num_hw_update_entries  = 0;
+	req->num_in_map_entries     = 0;
+	req->num_out_map_entries    = 0;
+	req->num_out_acked          = 0;
+	req->flushed                = 0;
+	atomic_set(&req->num_in_acked, 0);
+	memset(&req->pf_data, 0, sizeof(struct cam_hw_mgr_dump_pf_data));
 
 	/* for config dev, only memory handle is supported */
 	/* map packet from the memhandle */
@@ -411,12 +540,12 @@ int32_t cam_context_prepare_dev_to_hw(struct cam_context *ctx,
 	cfg.packet = packet;
 	cfg.remain_len = remain_len;
 	cfg.ctxt_to_hw_map = ctx->ctxt_to_hw_map;
-	cfg.max_hw_update_entries = CAM_CTX_CFG_MAX;
+	cfg.max_hw_update_entries = ctx->max_hw_update_entries;
 	cfg.num_hw_update_entries = req->num_hw_update_entries;
 	cfg.hw_update_entries = req->hw_update_entries;
-	cfg.max_out_map_entries = CAM_CTX_CFG_MAX;
+	cfg.max_out_map_entries = ctx->max_out_map_entries;
 	cfg.out_map_entries = req->out_map_entries;
-	cfg.max_in_map_entries = CAM_CTX_CFG_MAX;
+	cfg.max_in_map_entries = ctx->max_in_map_entries;
 	cfg.in_map_entries = req->in_map_entries;
 	cfg.pf_data = &(req->pf_data);
 
@@ -561,6 +690,14 @@ int32_t cam_context_acquire_dev_to_hw(struct cam_context *ctx,
 	param.event_cb = ctx->irq_cb_intf;
 	param.num_acq = cmd->num_resources;
 	param.acquire_info = cmd->resource_hdl;
+	/* Allocate memory for hw and map entries */
+	rc = cam_context_allocate_mem_hw_entries(ctx);
+
+	if (rc != 0) {
+		CAM_ERR(CAM_CTXT, "[%s][%d] Alloc entries failed",
+			ctx->dev_name, ctx->ctx_id);
+		goto end;
+	}
 
 	/* call HW manager to reserve the resource */
 	rc = ctx->hw_mgr_intf->hw_acquire(ctx->hw_mgr_intf->hw_mgr_priv,

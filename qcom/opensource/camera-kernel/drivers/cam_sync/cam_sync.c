@@ -1151,7 +1151,7 @@ static int cam_sync_component_bind(struct device *dev,
 	int idx;
 	struct platform_device *pdev = to_platform_device(dev);
 
-	sync_dev = kzalloc(sizeof(*sync_dev), GFP_KERNEL);
+	sync_dev = kvzalloc(sizeof(*sync_dev), GFP_KERNEL);
 	if (!sync_dev)
 		return -ENOMEM;
 
@@ -1237,7 +1237,7 @@ mcinit_fail:
 	video_device_release(sync_dev->vdev);
 vdev_fail:
 	mutex_destroy(&sync_dev->table_lock);
-	kfree(sync_dev);
+	kvfree(sync_dev);
 	return rc;
 }
 
@@ -1259,7 +1259,7 @@ static void cam_sync_component_unbind(struct device *dev,
 	for (i = 0; i < CAM_SYNC_MAX_OBJS; i++)
 		spin_lock_init(&sync_dev->row_spinlocks[i]);
 
-	kfree(sync_dev);
+	kvfree(sync_dev);
 	sync_dev = NULL;
 }
 

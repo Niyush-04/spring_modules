@@ -225,6 +225,10 @@ struct cam_flash_ctrl {
 	uint32_t                            last_flush_req;
 	uint32_t                            streamoff_count;
 	int32_t                             apply_streamoff;
+	uint32_t                            enm_gpio;
+    uint32_t                            enf_gpio;
+	struct led_classdev                 cdev;
+	uint32_t                            brightness;
 };
 
 int cam_flash_pmic_pkt_parser(struct cam_flash_ctrl *fctrl, void *arg);

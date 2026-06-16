@@ -14,6 +14,8 @@
 #include "cam_common_util.h"
 #include "cam_packet_util.h"
 
+#include "gc08a8_otp_driver.h"
+
 #define MAX_READ_SIZE  0x7FFFF
 
 /**
@@ -34,6 +36,16 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 	struct cam_eeprom_memory_map_t    *emap = block->map;
 	struct cam_eeprom_soc_private     *eb_info = NULL;
 	uint8_t                           *memptr = block->mapdata;
+	int                                addr;
+	int                                start_addr = 0x15a8;
+	int                                end_addr = 0x4ea8;
+	int                                sn_start = 0x8a08;
+	int                                sn_end = 0x8a90;
+	int                                sensorid = 0;
+	int                                otp_flag = 0;
+	int                                vendorid = 0;
+	int                                otp_data = 0;
+	int                                i = 0;
 
 	if (!e_ctrl) {
 		CAM_ERR(CAM_EEPROM, "e_ctrl is NULL");
@@ -103,6 +115,111 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 			}
 		}
 
+		camera_io_dev_read(&e_ctrl->io_master_info, OTP_GC08A8_SENSORID_REG, &sensorid, CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_WORD);
+		if (sensorid == 0x08a8)
+		{
+			CAM_DBG(CAM_EEPROM, "zengx otp init start");
+			vendorid = otp_read_vendorid(e_ctrl);
+			CAM_DBG(CAM_EEPROM, "zengx vendorid = 0x%2x", vendorid);
+			if (vendorid == 0x09) // read otp_data for truly_gc08a8
+			{
+			    CAM_DBG(CAM_EEPROM, "read truly_gc08a8 otp");
+			    init_otp_read_byte_gc08a8(e_ctrl);
+			    otp_set_addr_gc08a8(e_ctrl, 0x15a0);
+			    otp_byte_flag_gc08a8(e_ctrl);
+			    otp_flag = otp_read_reg_gc08a8(e_ctrl);
+			    if (otp_flag == 0x01)
+			    {
+			        memptr[i] = otp_flag;
+			    }
+			    else if (otp_flag == 0x13)
+			    {
+			        start_addr = 0x8ab8;
+				end_addr = 0xc3b8;
+				sn_start = 0xff18;
+				sn_end   = 0xffa0;
+				memptr[i] = otp_flag;
+			    }
+			    else
+			    {
+			        CAM_ERR(CAM_EEPROM, "truly_gc08a8 otp_flag error");
+			    }
+
+    			    init_otp_read_continue_gc08a8(e_ctrl);
+ 			    otp_set_addr_gc08a8(e_ctrl, start_addr);
+			    otp_continue_flag_gc08a8(e_ctrl);
+
+			    for (addr = start_addr; addr <= end_addr; addr = addr + 8)
+			    {
+				otp_data = otp_read_reg_gc08a8(e_ctrl);
+				++i;
+				memptr[i] = otp_data;
+			    }
+			    otp_set_addr_gc08a8(e_ctrl, sn_start);
+			    otp_continue_flag_gc08a8(e_ctrl);
+			    for (addr = sn_start; addr <= sn_end; addr = addr + 8)
+			    {
+				otp_data = otp_read_reg_gc08a8(e_ctrl);
+				++i;
+				memptr[i] = otp_data;
+			    }
+			    memptr += emap[j].mem.valid_size;
+			}
+			else if (vendorid == 0x10) // read otp_data for aac_gc08a8
+			{
+			    CAM_DBG(CAM_EEPROM, "zengx read aac_gc08a8 otp");
+			    init_otp_read_byte_gc08a8(e_ctrl);
+			    otp_set_addr_gc08a8(e_ctrl, 0x8ab0);
+			    otp_byte_flag_gc08a8(e_ctrl);
+			    otp_flag = otp_read_reg_gc08a8(e_ctrl);
+			    CAM_DBG(CAM_EEPROM, "otp_flag = 0x%2x", otp_flag);
+			    if (otp_flag == 0x00)
+			    {
+			        start_addr = 0x15a0;
+				end_addr = 0x4ea8;
+				sn_start = 0x8a08;
+				sn_end = 0x8a90;
+			    }
+			    else if (otp_flag == 0x01)
+			    {
+			        start_addr = 0x8ab8;
+				end_addr = 0xc3c0;
+				sn_start = 0xff20;
+				sn_end = 0xffa8;
+			    }
+			    else
+			    {
+			        CAM_ERR(CAM_EEPROM, "aac_gc08a8 otp_flag error");
+			    }
+
+    			    init_otp_read_continue_gc08a8(e_ctrl);
+ 			    otp_set_addr_gc08a8(e_ctrl, start_addr);
+			    otp_continue_flag_gc08a8(e_ctrl);
+
+			    for (addr = start_addr; addr <= end_addr; addr = addr + 8)
+			    {
+				otp_data = otp_read_reg_gc08a8(e_ctrl);
+				memptr[i] = otp_data;
+				++i;
+			    }
+			    otp_set_addr_gc08a8(e_ctrl, sn_start);
+			    otp_continue_flag_gc08a8(e_ctrl);
+			    for (addr = sn_start; addr <= sn_end; addr = addr + 8)
+			    {
+				otp_data = otp_read_reg_gc08a8(e_ctrl);
+				memptr[i] = otp_data;
+				++i;
+			    }
+			    memptr += emap[j].mem.valid_size;
+			}
+			else
+			{
+			    CAM_ERR(CAM_EEPROM, "gc08a8 vendorid read fail");
+			}
+
+			CAM_ERR(CAM_EEPROM, "zengx otp init end");
+		}
+		else{
 		if (emap[j].mem.valid_size) {
 			rc = camera_io_dev_read_seq(&e_ctrl->io_master_info,
 				emap[j].mem.addr, memptr,
@@ -115,6 +232,7 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 				return rc;
 			}
 			memptr += emap[j].mem.valid_size;
+		}
 		}
 
 		if (emap[j].pageen.valid_size) {
@@ -145,7 +263,7 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
  *
  * Returns success or failure
  */
-static int cam_eeprom_power_up(struct cam_eeprom_ctrl_t *e_ctrl,
+int cam_eeprom_power_up(struct cam_eeprom_ctrl_t *e_ctrl,
 	struct cam_sensor_power_ctrl_t *power_info)
 {
 	int32_t                 rc = 0;
@@ -203,7 +321,7 @@ cci_failure:
  *
  * Returns success or failure
  */
-static int cam_eeprom_power_down(struct cam_eeprom_ctrl_t *e_ctrl)
+int cam_eeprom_power_down(struct cam_eeprom_ctrl_t *e_ctrl)
 {
 	struct cam_sensor_power_ctrl_t *power_info;
 	struct cam_hw_soc_info         *soc_info;

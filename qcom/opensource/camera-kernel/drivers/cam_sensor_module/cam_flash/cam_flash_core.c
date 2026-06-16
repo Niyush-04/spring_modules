@@ -13,6 +13,8 @@
 #include "cam_packet_util.h"
 #include <linux/math64.h>
 
+#define CAM_FLASH_TYPE_GPIO 2
+
 static uint default_on_timer = 2;
 module_param(default_on_timer, uint, 0644);
 
@@ -477,11 +479,15 @@ static int cam_flash_ops(struct cam_flash_ctrl *flash_ctrl,
 int cam_flash_off(struct cam_flash_ctrl *flash_ctrl)
 {
 	int rc = 0;
+	struct cam_flash_private_soc *soc_private = NULL;
 
 	if (!flash_ctrl) {
 		CAM_ERR(CAM_FLASH, "Flash control Null");
 		return -EINVAL;
 	}
+
+	soc_private = (struct cam_flash_private_soc *)flash_ctrl->soc_info.soc_private;
+
 	CAM_DBG(CAM_FLASH, "Flash OFF Triggered");
 	if (flash_ctrl->switch_trigger)
 		cam_res_mgr_led_trigger_event(flash_ctrl->switch_trigger,
@@ -504,11 +510,15 @@ static int cam_flash_low(
 	struct cam_flash_frame_setting *flash_data)
 {
 	int i = 0, rc = 0;
+	struct cam_flash_private_soc *soc_private = NULL;
 
 	if (!flash_data) {
 		CAM_ERR(CAM_FLASH, "Flash Data Null");
 		return -EINVAL;
 	}
+
+	soc_private = (struct cam_flash_private_soc *)
+			flash_ctrl->soc_info.soc_private;
 
 	for (i = 0; i < flash_ctrl->flash_num_sources; i++)
 		if (flash_ctrl->flash_trigger[i])
@@ -529,11 +539,14 @@ static int cam_flash_high(
 	struct cam_flash_frame_setting *flash_data)
 {
 	int i = 0, rc = 0;
+	struct cam_flash_private_soc *soc_private = NULL;
 
 	if (!flash_data) {
 		CAM_ERR(CAM_FLASH, "Flash Data Null");
 		return -EINVAL;
 	}
+
+	soc_private = (struct cam_flash_private_soc *)flash_ctrl->soc_info.soc_private;
 
 	for (i = 0; i < flash_ctrl->torch_num_sources; i++)
 		if (flash_ctrl->torch_trigger[i])
@@ -713,6 +726,58 @@ static int32_t cam_flash_slaveInfo_pkt_parser(struct cam_flash_ctrl *fctrl,
 	return rc;
 }
 
+static int cam_flash_gpio_ctrl(struct cam_flash_ctrl *fctrl,
+    struct i2c_settings_list *i2c_list)
+{
+	uint32_t i = 0, size = 0;
+	uint32_t enm_gpio_value = 0, enf_gpio_value = 0;
+	int rc = 0;
+
+    if (NULL == i2c_list) {
+		return -1;
+	} else {
+        size = i2c_list->i2c_settings.size;
+	    for (i = 0; i < size; i++) {
+            CAM_ERR(CAM_FLASH, "ccking, reg_addr: %d, reg_data: %d", i2c_list->i2c_settings.reg_setting[i].reg_addr, i2c_list->i2c_settings.reg_setting[i].reg_data);
+            if (0x01 == i2c_list->i2c_settings.reg_setting[i].reg_addr && 0 == i2c_list->i2c_settings.reg_setting[i].reg_data) {
+                enm_gpio_value = 0;
+                enf_gpio_value = 0;
+                CAM_ERR(CAM_FLASH, "ccking, flash init");
+                break;
+            } else if (0x05 == i2c_list->i2c_settings.reg_setting[i].reg_addr && 0x38 == i2c_list->i2c_settings.reg_setting[i].reg_data) {
+                enm_gpio_value = 1;
+                enf_gpio_value = 0;
+                CAM_ERR(CAM_FLASH, "ccking, flash low");
+                //break;
+            } else if (0x03 == i2c_list->i2c_settings.reg_setting[i].reg_addr ||
+                    (0x05 == i2c_list->i2c_settings.reg_setting[i].reg_addr && 0x8E == i2c_list->i2c_settings.reg_setting[i].reg_data)) {
+                enm_gpio_value = 1;
+                enf_gpio_value = 1;
+                CAM_ERR(CAM_FLASH, "ccking, flash high");
+                //break;
+            } else if (0x01 == i2c_list->i2c_settings.reg_setting[i].reg_addr && 0x80 == i2c_list->i2c_settings.reg_setting[i].reg_data) {
+                enm_gpio_value = 0;
+                enf_gpio_value = 0;
+                CAM_ERR(CAM_FLASH, "ccking, flash OFF");
+                break;
+            }
+	    }
+        
+	    rc = gpio_direction_output(fctrl->enm_gpio, enm_gpio_value);
+	    if (rc){
+	        CAM_ERR(CAM_FLASH, "flash enm out %d fail!!!: %d", enm_gpio_value, rc);
+	        return rc;
+	    }
+	    rc = gpio_direction_output(fctrl->enf_gpio, enf_gpio_value);
+	    if (rc){
+	        CAM_ERR(CAM_FLASH, "flash enf out %d fail!!!: %d", enf_gpio_value, rc);
+	        return rc;
+	    }
+	}
+
+	return rc;
+}
+
 int cam_flash_i2c_apply_setting(struct cam_flash_ctrl *fctrl,
 	uint64_t req_id)
 {
@@ -732,8 +797,13 @@ int cam_flash_i2c_apply_setting(struct cam_flash_ctrl *fctrl,
 					(&(fctrl->io_master_info), i2c_list);
 				if (rc) {
 					CAM_ERR(CAM_FLASH,
-					"Failed to apply stream on settings: %d", rc);
-					return rc;
+					"Failed to apply stream off settings: %d, change to gpio control",
+					rc);
+					rc = cam_flash_gpio_ctrl(fctrl, i2c_list);
+					if (rc) {
+						CAM_ERR(CAM_FLASH,"Failed to gpio control for torch off: %d", rc);
+					    return rc;
+					}
 				}
 				break;
 			}
@@ -755,9 +825,13 @@ int cam_flash_i2c_apply_setting(struct cam_flash_ctrl *fctrl,
 
 				if (rc) {
 					CAM_ERR(CAM_FLASH,
-					"Failed to apply init settings: %d",
+					"Failed to apply init settings: %d, change to gpio control",
 					rc);
-					return rc;
+					rc = cam_flash_gpio_ctrl(fctrl, i2c_list);
+					if (rc) {
+						CAM_ERR(CAM_FLASH,"Failed to gpio control for torch init: %d", rc);
+					    return rc;
+					}
 				}
 			}
 		}
@@ -770,8 +844,12 @@ int cam_flash_i2c_apply_setting(struct cam_flash_ctrl *fctrl,
 					(&(fctrl->io_master_info), i2c_list);
 				if (rc) {
 					CAM_ERR(CAM_FLASH,
-					"Failed to apply NRT settings: %d", rc);
-					return rc;
+					"Failed to apply NRT settings: %d, change to gpio control", rc);
+					rc = cam_flash_gpio_ctrl(fctrl, i2c_list);
+					if (rc) {
+						CAM_ERR(CAM_FLASH,"Failed to gpio control for torch config: %d", rc);
+					    return rc;
+					}
 				}
 			}
 		}
@@ -788,7 +866,11 @@ int cam_flash_i2c_apply_setting(struct cam_flash_ctrl *fctrl,
 				if (rc) {
 					CAM_ERR(CAM_FLASH,
 					"Failed to apply settings: %d", rc);
-					return rc;
+					rc = cam_flash_gpio_ctrl(fctrl, i2c_list);
+					if (rc) {
+						CAM_ERR(CAM_FLASH,"Failed to gpio control for flash config: %d", rc);
+					    return rc;
+					}
 				}
 			}
 		}

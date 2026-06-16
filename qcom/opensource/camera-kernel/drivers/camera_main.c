@@ -56,6 +56,7 @@
 #include "cam_tfe_csid_dev.h"
 #include "cam_csid_ppi100.h"
 #include "camera_main.h"
+#include "wl2866d/wl2866d.h"
 
 char camera_banner[] = "Camera-Banner: (" __stringify(KBUILD_BUILD_USER) "@"\
 	__stringify(KBUILD_BUILD_HOST) ")\
@@ -107,6 +108,7 @@ static const struct camera_submodule_component camera_sensor[] = {
 	{&cam_res_mgr_init, &cam_res_mgr_exit},
 	{&cam_cci_init_module, &cam_cci_exit_module},
 	{&cam_csiphy_init_module, &cam_csiphy_exit_module},
+    {&cam_wl2866_init_module, &cam_wl2866_exit_module},
 	{&cam_actuator_driver_init, &cam_actuator_driver_exit},
 	{&cam_sensor_driver_init, &cam_sensor_driver_exit},
 	{&cam_eeprom_driver_init, &cam_eeprom_driver_exit},

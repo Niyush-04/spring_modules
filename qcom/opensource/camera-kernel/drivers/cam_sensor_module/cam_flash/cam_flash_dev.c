@@ -12,6 +12,66 @@
 #include "camera_main.h"
 #include "cam_compat.h"
 
+static void led_gpio_brightness_set(struct led_classdev *led_cdev,
+				    enum led_brightness value)
+{
+	int rc = 0;
+	uint32_t brightness = value;
+	struct cam_flash_ctrl *flash_ctrl = container_of(led_cdev, struct cam_flash_ctrl, cdev);
+
+	if (0 == brightness) {
+	    rc = gpio_direction_output(flash_ctrl->enm_gpio, 0);
+	    if (rc){
+	        CAM_ERR(CAM_FLASH, "flash enm out low fail!!!: %d", rc);
+	        goto err;
+	    }
+	    rc = gpio_direction_output(flash_ctrl->enf_gpio, 0);
+	    if (rc){
+	        CAM_ERR(CAM_FLASH, "flash enf out low fail!!!: %d", rc);
+	        goto err;
+	    }
+	} else if (1 == brightness) {
+	    rc = gpio_direction_output(flash_ctrl->enm_gpio, 1);
+	    if (rc){
+	        CAM_ERR(CAM_FLASH, "flash enm out high fail!!!: %d", rc);
+	        goto err;
+	    }
+	    rc = gpio_direction_output(flash_ctrl->enf_gpio, 0);
+	    if (rc){
+	        CAM_ERR(CAM_FLASH, "flash enf out low fail!!!: %d", rc);
+	        goto err;
+	    }
+	} else if (2 == brightness) {
+	    rc = gpio_direction_output(flash_ctrl->enm_gpio, 1);
+	    if (rc){
+	        CAM_ERR(CAM_FLASH, "flash enm out high fail!!!: %d", rc);
+	        goto err;
+	    }
+	    rc = gpio_direction_output(flash_ctrl->enf_gpio, 1);
+	    if (rc){
+	        CAM_ERR(CAM_FLASH, "flash enf out high fail!!!: %d", rc);
+	        goto err;
+	    }
+	} else {
+	    brightness = 0;
+	    CAM_ERR(CAM_FLASH, "set brightness value invalid!!!");
+	}
+
+    pr_err("Brave %s:brightness %d, flash_en=2, flash_now=2\n", __func__,
+                        value);
+	flash_ctrl->brightness = brightness;
+err:
+	return;
+}
+
+static enum led_brightness led_gpio_brightness_get(struct led_classdev
+						   *led_cdev)
+{
+	struct cam_flash_ctrl *flash_ctrl =
+	    container_of(led_cdev, struct cam_flash_ctrl, cdev);
+	return flash_ctrl->brightness;
+}
+
 static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 		void *arg, struct cam_flash_private_soc *soc_private)
 {
@@ -199,7 +259,8 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 		rc = fctrl->func_tbl.parser(fctrl, arg);
 		if (rc) {
 			CAM_ERR(CAM_FLASH, "Failed Flash Config: rc=%d\n", rc);
-			goto release_mutex;
+			//goto release_mutex;
+			rc = 0;
 		}
 		break;
 	}
@@ -675,10 +736,10 @@ static int32_t cam_flash_i2c_driver_probe(struct i2c_client *client,
 	}
 
 	rc = cam_sensor_util_init_gpio_pin_tbl(soc_info,
-			&fctrl->power_info.gpio_num_info);
+	        &fctrl->power_info.gpio_num_info);
 	if ((rc < 0) || (!fctrl->power_info.gpio_num_info)) {
-		CAM_ERR(CAM_FLASH, "No/Error Flash GPIOs");
-		goto free_ctrl;
+	    CAM_ERR(CAM_FLASH, "No/Error Flash GPIOs");
+	    goto free_ctrl;
 	}
 
 	rc = cam_flash_init_subdev(fctrl);
@@ -703,6 +764,17 @@ static int32_t cam_flash_i2c_driver_probe(struct i2c_client *client,
 	fctrl->func_tbl.apply_setting = cam_flash_i2c_apply_setting;
 	fctrl->func_tbl.power_ops = cam_flash_i2c_power_ops;
 	fctrl->func_tbl.flush_req = cam_flash_i2c_flush_request;
+
+	//add for flash node
+	fctrl->cdev.name = "led:torch";
+	fctrl->cdev.brightness_set = led_gpio_brightness_set;
+	fctrl->cdev.brightness_get = led_gpio_brightness_get;
+	fctrl->cdev.max_brightness = LED_FULL;
+	rc = led_classdev_register(NULL, &fctrl->cdev);
+	if (rc < 0)
+	{
+		CAM_ERR(CAM_FLASH, "led_classdev_register failed with rc = %d", rc);
+	}
 
 	fctrl->bridge_intf.device_hdl = -1;
 	fctrl->bridge_intf.link_hdl = -1;

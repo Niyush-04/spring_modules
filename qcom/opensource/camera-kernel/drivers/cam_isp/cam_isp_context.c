@@ -4619,6 +4619,42 @@ static struct cam_ctx_ops
 	},
 };
 
+static void __cam_isp_ctx_free_mem_hw_entries(struct cam_context *ctx)
+{
+	int  i;
+
+	if (ctx->out_map_entries) {
+		for (i = 0; i < CAM_ISP_CTX_REQ_MAX; i++) {
+			kfree(ctx->out_map_entries[i]);
+			ctx->out_map_entries[i] = NULL;
+		}
+
+		kfree(ctx->out_map_entries);
+		ctx->out_map_entries = NULL;
+	}
+
+	if (ctx->in_map_entries) {
+		for (i = 0; i < CAM_ISP_CTX_REQ_MAX; i++) {
+			kfree(ctx->in_map_entries[i]);
+			ctx->in_map_entries[i] = NULL;
+		}
+
+		kfree(ctx->in_map_entries);
+		ctx->in_map_entries = NULL;
+	}
+
+	if (ctx->hw_update_entry) {
+		for (i = 0; i < CAM_ISP_CTX_REQ_MAX; i++) {
+			kfree(ctx->hw_update_entry[i]);
+			ctx->hw_update_entry[i] = NULL;
+		}
+
+		kfree(ctx->hw_update_entry);
+		ctx->hw_update_entry = NULL;
+	}
+
+}
+
 static int __cam_isp_ctx_release_hw_in_top_state(struct cam_context *ctx,
 	void *cmd)
 {
@@ -4669,6 +4705,7 @@ static int __cam_isp_ctx_release_hw_in_top_state(struct cam_context *ctx,
 	CAM_DBG(CAM_ISP, "try to flush pending list");
 	spin_lock_bh(&ctx->lock);
 	rc = __cam_isp_ctx_flush_req(ctx, &ctx->pending_req_list, &flush_req);
+	__cam_isp_ctx_free_mem_hw_entries(ctx);
 	spin_unlock_bh(&ctx->lock);
 	ctx->state = CAM_CTX_ACQUIRED;
 
@@ -4734,6 +4771,7 @@ static int __cam_isp_ctx_release_dev_in_top_state(struct cam_context *ctx,
 	CAM_DBG(CAM_ISP, "try to flush pending list");
 	spin_lock_bh(&ctx->lock);
 	rc = __cam_isp_ctx_flush_req(ctx, &ctx->pending_req_list, &flush_req);
+	__cam_isp_ctx_free_mem_hw_entries(ctx);
 	spin_unlock_bh(&ctx->lock);
 	ctx->state = CAM_CTX_AVAILABLE;
 
@@ -4844,10 +4882,10 @@ static int __cam_isp_ctx_config_dev_in_top_state(
 	cfg.packet = packet;
 	cfg.remain_len = remain_len;
 	cfg.ctxt_to_hw_map = ctx_isp->hw_ctx;
-	cfg.max_hw_update_entries = CAM_ISP_CTX_CFG_MAX;
+	cfg.max_hw_update_entries = ctx->max_hw_update_entries;
 	cfg.hw_update_entries = req_isp->cfg;
-	cfg.max_out_map_entries = CAM_ISP_CTX_RES_MAX;
-	cfg.max_in_map_entries = CAM_ISP_CTX_RES_MAX;
+	cfg.max_out_map_entries = ctx->max_out_map_entries;
+	cfg.max_in_map_entries = ctx->max_in_map_entries;
 	cfg.out_map_entries = req_isp->fence_map_out;
 	cfg.in_map_entries = req_isp->fence_map_in;
 	cfg.priv  = &req_isp->hw_update_data;
@@ -4958,6 +4996,91 @@ free_req:
 	return rc;
 }
 
+
+static int __cam_isp_ctx_allocate_mem_hw_entries(struct cam_context *ctx)
+{
+	int rc = 0, i;
+	struct cam_ctx_request          *req;
+	struct cam_ctx_request          *temp_req;
+	struct cam_isp_ctx_req          *req_isp;
+
+	ctx->hw_update_entry = kcalloc(CAM_ISP_CTX_REQ_MAX, sizeof(struct cam_hw_update_entry *),
+		GFP_KERNEL);
+	if (!ctx->hw_update_entry) {
+		CAM_ERR(CAM_CTXT, "%s[%d] no memory", ctx->dev_name, ctx->ctx_id);
+		return -ENOMEM;
+	}
+
+	for (i = 0; i < CAM_ISP_CTX_REQ_MAX; i++) {
+		ctx->hw_update_entry[i] = kcalloc(ctx->max_hw_update_entries,
+			sizeof(struct cam_hw_update_entry), GFP_KERNEL);
+		if (!ctx->hw_update_entry[i]) {
+			CAM_ERR(CAM_CTXT, "%s[%d] no memory for hw_update_entry: %u",
+				ctx->dev_name, ctx->ctx_id, i);
+			return -ENOMEM;
+		}
+	}
+
+	ctx->in_map_entries = kcalloc(CAM_ISP_CTX_REQ_MAX, sizeof(struct cam_hw_fence_map_entry *),
+		GFP_KERNEL);
+
+	if (!ctx->in_map_entries) {
+		CAM_ERR(CAM_CTXT, "%s[%d] no memory for in_map_entries", ctx->dev_name, ctx->ctx_id);
+		rc = -ENOMEM;
+		goto end;
+	}
+
+	for (i = 0; i < CAM_ISP_CTX_REQ_MAX; i++) {
+		ctx->in_map_entries[i] = kcalloc(ctx->max_in_map_entries,
+			sizeof(struct cam_hw_fence_map_entry),
+			GFP_KERNEL);
+
+		if (!ctx->in_map_entries[i]) {
+			CAM_ERR(CAM_CTXT, "%s[%d] no memory for in_map_entries: %u",
+				ctx->dev_name, ctx->ctx_id, i);
+			rc = -ENOMEM;
+			goto end;
+		}
+	}
+
+	ctx->out_map_entries = kcalloc(CAM_ISP_CTX_REQ_MAX, sizeof(struct cam_hw_fence_map_entry *),
+			GFP_KERNEL);
+
+	if (!ctx->out_map_entries) {
+		CAM_ERR(CAM_CTXT, "%s[%d] no memory for out_map_entries", ctx->dev_name, ctx->ctx_id);
+		rc = -ENOMEM;
+		goto end;
+	}
+	for (i = 0; i < CAM_ISP_CTX_REQ_MAX; i++) {
+		ctx->out_map_entries[i] = kcalloc(ctx->max_out_map_entries,
+			sizeof(struct cam_hw_fence_map_entry),
+			GFP_KERNEL);
+
+		if (!ctx->out_map_entries[i]) {
+			CAM_ERR(CAM_CTXT, "%s[%d] no memory for out_map_entries: %u",
+				ctx->dev_name, ctx->ctx_id, i);
+			rc = -ENOMEM;
+			goto end;
+		}
+	}
+
+	list_for_each_entry_safe(req, temp_req,
+		&ctx->free_req_list, list) {
+		req_isp = (struct cam_isp_ctx_req *) req->req_priv;
+
+		req_isp->cfg = ctx->hw_update_entry[req->index];
+		req_isp->fence_map_in = ctx->in_map_entries[req->index];
+		req_isp->fence_map_out = ctx->out_map_entries[req->index];
+	}
+
+	return rc;
+
+end:
+	__cam_isp_ctx_free_mem_hw_entries(ctx);
+
+	return rc;
+}
+
 static int __cam_isp_ctx_acquire_dev_in_available(struct cam_context *ctx,
 	struct cam_acquire_dev_cmd *cmd)
 {
@@ -5022,7 +5145,12 @@ static int __cam_isp_ctx_acquire_dev_in_available(struct cam_context *ctx,
 	param.event_cb = ctx->irq_cb_intf;
 	param.num_acq = cmd->num_resources;
 	param.acquire_info = (uintptr_t) isp_res;
-
+	rc = __cam_isp_ctx_allocate_mem_hw_entries(ctx);
+	if (rc) {
+		CAM_ERR(CAM_ISP, "Ctx[%d] allocate hw entry fail",
+			ctx->ctx_id);
+		goto free_res;
+	}
 	/* call HW manager to reserve the resource */
 	rc = ctx->hw_mgr_intf->hw_acquire(ctx->hw_mgr_intf->hw_mgr_priv,
 		&param);
@@ -5185,6 +5313,13 @@ static int __cam_isp_ctx_acquire_hw_v1(struct cam_context *ctx,
 	param.acquire_info_size = cmd->data_size;
 	param.acquire_info = (uint64_t) acquire_hw_info;
 
+	rc = __cam_isp_ctx_allocate_mem_hw_entries(ctx);
+	if (rc) {
+		CAM_ERR(CAM_ISP, "Ctx[%d] allocate hw entry fail",
+			ctx->ctx_id);
+		goto free_res;
+	}
+
 	/* call HW manager to reserve the resource */
 	rc = ctx->hw_mgr_intf->hw_acquire(ctx->hw_mgr_intf->hw_mgr_priv,
 		&param);
@@ -5327,6 +5462,13 @@ static int __cam_isp_ctx_acquire_hw_v2(struct cam_context *ctx,
 	param.num_acq = CAM_API_COMPAT_CONSTANT;
 	param.acquire_info_size = cmd->data_size;
 	param.acquire_info = (uint64_t) acquire_hw_info;
+
+	rc = __cam_isp_ctx_allocate_mem_hw_entries(ctx);
+	if (rc) {
+		CAM_ERR(CAM_ISP, "Ctx[%d] allocate hw entry fail",
+			ctx->ctx_id);
+		goto free_res;
+	}
 
 	/* call HW manager to reserve the resource */
 	rc = ctx->hw_mgr_intf->hw_acquire(ctx->hw_mgr_intf->hw_mgr_priv,
@@ -6403,6 +6545,9 @@ int cam_isp_context_init(struct cam_isp_context *ctx,
 	ctx_base->state_machine = cam_isp_ctx_top_state_machine;
 	ctx_base->ctx_priv = ctx;
 
+	ctx_base->max_hw_update_entries = CAM_ISP_CTX_CFG_MAX;
+	ctx_base->max_in_map_entries = CAM_ISP_CTX_RES_MAX;
+	ctx_base->max_out_map_entries = CAM_ISP_CTX_RES_MAX;
 	/* initializing current state for error logging */
 	for (i = 0; i < CAM_ISP_CTX_STATE_MONITOR_MAX_ENTRIES; i++) {
 		ctx->cam_isp_ctx_state_monitor[i].curr_state =

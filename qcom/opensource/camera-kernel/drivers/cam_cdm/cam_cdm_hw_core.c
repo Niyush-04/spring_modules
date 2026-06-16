@@ -1566,7 +1566,7 @@ irqreturn_t cam_hw_cdm_irq(int irq_num, void *data)
 	}
 	if (rst_done_cnt &&
 		(rst_done_cnt != cdm_core->offsets->reg_data->num_bl_fifo_irq))
-		CAM_INFO(CAM_CDM,
+		CAM_ERR(CAM_CDM,
 			"%s%u Reset IRQ received for %d fifos instead of %d",
 			soc_info->label_name,
 			soc_info->index, rst_done_cnt,

@@ -1,6 +1,6 @@
 load("//build/kernel/kleaf:kernel.bzl", "ddk_module")
 load("//build/bazel_common_rules/dist:dist.bzl", "copy_to_dist_dir")
-load("//msm-kernel:target_variants.bzl", "get_all_variants")
+load("//msm-kernel:target_variants.bzl", "get_all_variants", "get_arch_of_target")
 
 def _define_module(target, variant):
     tv = "{}_{}".format(target, variant)
@@ -45,6 +45,7 @@ def _define_module(target, variant):
             "drivers/cam_cdm/cam_cdm_virtual_core.c",
             "drivers/cam_cdm/cam_cdm_hw_core.c",
             "drivers/camera_main.c",
+            "drivers/wl2866d/wl2866d.c",
         ],
         conditional_srcs = {
             "CONFIG_QCOM_CX_IPEAK": {
@@ -255,5 +256,10 @@ def _define_module(target, variant):
     )
 
 def define_camera_module():
-    for (t, v) in get_all_variants():
+    pairs = []
+    for target, variant in get_all_variants():
+        arch = get_arch_of_target(target)
+        if arch == target:
+            pairs.append((target, variant))
+    for (t, v) in pairs:
         _define_module(t, v)

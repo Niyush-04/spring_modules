@@ -171,7 +171,7 @@ static int cam_isp_dev_component_bind(struct device *dev,
 		goto unregister;
 	}
 
-	g_isp_dev.ctx_isp = kcalloc(g_isp_dev.max_context,
+	g_isp_dev.ctx_isp = kvcalloc(g_isp_dev.max_context,
 		sizeof(struct cam_isp_context),
 		GFP_KERNEL);
 	if (!g_isp_dev.ctx_isp) {
@@ -180,7 +180,10 @@ static int cam_isp_dev_component_bind(struct device *dev,
 		kfree(g_isp_dev.ctx);
 		g_isp_dev.ctx = NULL;
 		goto unregister;
-	}
+	} else {
+		CAM_ERR(CAM_ISP,
+				"cam_isp_dev.c: alloc ctx_isp %d", is_vmalloc_addr(g_isp_dev.ctx_isp));
+    }
 
 	rc = cam_isp_hw_mgr_init(compat_str, &hw_mgr_intf, &iommu_hdl);
 	if (rc != 0) {
@@ -221,7 +224,7 @@ static int cam_isp_dev_component_bind(struct device *dev,
 kfree:
 	kfree(g_isp_dev.ctx);
 	g_isp_dev.ctx = NULL;
-	kfree(g_isp_dev.ctx_isp);
+	kvfree(g_isp_dev.ctx_isp);
 	g_isp_dev.ctx_isp = NULL;
 
 unregister:
@@ -252,7 +255,7 @@ static void cam_isp_dev_component_unbind(struct device *dev,
 
 	kfree(g_isp_dev.ctx);
 	g_isp_dev.ctx = NULL;
-	kfree(g_isp_dev.ctx_isp);
+	kvfree(g_isp_dev.ctx_isp);
 	g_isp_dev.ctx_isp = NULL;
 
 	rc = cam_subdev_remove(&g_isp_dev.sd);

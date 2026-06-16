@@ -82,6 +82,11 @@ static int32_t cam_get_source_node_info(
 		soc_private->flash_type = CAM_FLASH_TYPE_PMIC; // default to PMIC flash
 	}
 
+	if (soc_private->flash_type == CAM_FLASH_TYPE_I2C) {
+		fctrl->enf_gpio = of_get_named_gpio(of_node, "enf-gpio", 0);
+		fctrl->enm_gpio = of_get_named_gpio(of_node, "enm-gpio", 0);
+	}
+
 	switch_src_node = of_parse_phandle(of_node, "switch-source", 0);
 	if (!switch_src_node) {
 		CAM_WARN(CAM_FLASH, "switch_src_node NULL");

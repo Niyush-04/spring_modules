@@ -11,6 +11,238 @@
 #include "cam_debug_util.h"
 #include "camera_main.h"
 #include "cam_compat.h"
+#include "qvga_sc080cs_i.h"
+#include "qvga_gc6163b_ii.h"
+
+static int    qvga_state = 0;
+static int    qvga_isOpen = 0;
+static int    qvga_isCreat = 0;
+static int    qvga_sensor = 0;
+static struct platform_device* pdev_qvga[2];
+static struct platform_device *pdev_qvga_true;
+
+static ssize_t get_qvga_name(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	if(qvga_sensor == QVGA_SC080CS_I)
+	{
+		return (qvga_get_name_sc080cs(1, buf));
+	}
+	else if(qvga_sensor == QVGA_GC6163B_II)
+	{
+		return (qvga_get_name_gc6163b(1, buf));
+	}else
+	{
+		CAM_ERR(CAM_EEPROM, "torch:get name fail\n");
+		return (qvga_get_name_gc6163b(0, buf));
+	}
+}
+
+static ssize_t show_qvga_lux_data(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct cam_eeprom_ctrl_t       *e_ctrl = NULL;
+	uint32_t data = 0;
+	if (pdev_qvga_true == NULL)
+            return sprintf(buf, "%d\n", -99);
+	e_ctrl = platform_get_drvdata(pdev_qvga_true);
+	if(qvga_sensor == QVGA_SC080CS_I)
+	{
+		data = get_qvga_lux_data_sc0808cs(e_ctrl);
+	}
+	else if(qvga_sensor == QVGA_GC6163B_II)
+	{
+		data = get_qvga_lux_data_gc6163b(e_ctrl);
+	}else
+	{
+		CAM_ERR(CAM_EEPROM, "torch:get data fail\n");
+	}
+	CAM_INFO(CAM_EEPROM, "torch:get data= %d\n", data);
+	return sprintf(buf, "%d\n", data);
+}
+
+static int qvga_probe(void)
+{
+	struct cam_eeprom_ctrl_t       *e_ctrl = NULL;
+	struct cam_eeprom_soc_private  *soc_private;
+	struct cam_sensor_power_ctrl_t *power_info;
+	uint32_t                       chipid;
+	uint32_t                       i;
+
+	for (i = 1; i < QVGA_NUM; i++)
+	{
+		if (QVGA_SC080CS_I == i)
+		{
+			e_ctrl = platform_get_drvdata(pdev_qvga[i - 1]);
+			soc_private = (struct cam_eeprom_soc_private *)e_ctrl->soc_info.soc_private;
+			power_info = &soc_private->power_info;
+			cam_eeprom_power_up(e_ctrl, &soc_private->power_info);
+			camera_io_dev_read(&e_ctrl->io_master_info,QVGA_SC080CS_SLAVE_ADDR_REG,&chipid, CAMERA_SENSOR_I2C_TYPE_WORD,CAMERA_SENSOR_I2C_TYPE_WORD);
+			cam_eeprom_power_down(e_ctrl);
+			if(chipid == 0x3a6c){
+				qvga_sensor = QVGA_SC080CS_I;
+				pdev_qvga_true = pdev_qvga[i - 1];
+				CAM_INFO(CAM_EEPROM, "QVGA sc080cs probesuccessfully 0x%x",chipid);
+				break;
+			}
+			else
+			{
+				CAM_ERR(CAM_EEPROM, "invaild qvga sc080cs sensor id: 0x%x", chipid);
+			}
+		}
+		else if (QVGA_GC6163B_II == i)
+		{
+			e_ctrl = platform_get_drvdata(pdev_qvga[i - 1]);
+			soc_private = (struct cam_eeprom_soc_private *)e_ctrl->soc_info.soc_private;
+			power_info = &soc_private->power_info;
+			cam_eeprom_power_up(e_ctrl, &soc_private->power_info);
+			camera_io_dev_read(&e_ctrl->io_master_info,QVGA_GC6163B_SLAVE_ADDR_REG,&chipid, CAMERA_SENSOR_I2C_TYPE_BYTE,CAMERA_SENSOR_I2C_TYPE_BYTE);
+			cam_eeprom_power_down(e_ctrl);
+			if(chipid == 0xba){
+				qvga_sensor = QVGA_GC6163B_II;
+				pdev_qvga_true = pdev_qvga[i - 1];
+				CAM_INFO(CAM_EEPROM, "QVGA gc6163b probesuccessfully 0x%x",chipid);
+				break;
+			}
+			else
+			{
+				CAM_ERR(CAM_EEPROM, "invaild qvga gc6163b sensor id: 0x%x", chipid);
+			}
+		}
+	}
+
+	if (qvga_sensor < QVGA_SC080CS_I || qvga_sensor > QVGA_NUM)
+	{
+		CAM_ERR(CAM_EEPROM, "invaild qvga index: %d", qvga_sensor);
+		return  -1;
+	}
+
+	return 0;
+}
+
+static ssize_t store_qvga_opt(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct cam_eeprom_ctrl_t       *e_ctrl = NULL;
+	struct cam_eeprom_soc_private  *soc_private;
+	struct cam_sensor_power_ctrl_t *power_info;
+	uint32_t                       chipid;
+
+	qvga_state = simple_strtol(buf, NULL, 10);
+	CAM_DBG(CAM_EEPROM, "torch:set qvga_state= %d, qvga_isOpen= %d\n", qvga_state, qvga_isOpen);
+	if (QVGA_PROBE == qvga_state)
+	{
+		if (qvga_probe())
+		{
+			CAM_ERR(CAM_EEPROM, "qvga probe fail");
+		}
+		return count;
+	}
+
+	if (pdev_qvga_true == NULL)
+            return -1;
+	e_ctrl = platform_get_drvdata(pdev_qvga_true);
+
+	soc_private = (struct cam_eeprom_soc_private *)e_ctrl->soc_info.soc_private;
+	power_info = &soc_private->power_info;
+	if(qvga_sensor == QVGA_SC080CS_I)
+	{
+//SC0808CS
+#if 1
+		switch(qvga_state){
+			case QVGA_OPEN:
+				if(0 == qvga_isOpen){
+					qvga_isOpen = 1;
+					cam_eeprom_power_up(e_ctrl, power_info);
+					camera_io_dev_read(&e_ctrl->io_master_info,QVGA_SC080CS_SLAVE_ADDR_REG,&chipid, CAMERA_SENSOR_I2C_TYPE_WORD,CAMERA_SENSOR_I2C_TYPE_WORD);
+					//qvga_hw_on_reset(e_ctrl);
+					init_qvga_settinit_qvga_sc080cs(e_ctrl);
+					CAM_INFO(CAM_EEPROM, "read chipid 0x%x",chipid);
+				} else {
+					CAM_WARN(CAM_EEPROM, "QVGA power on repeatedly!");
+				}
+				break;
+			case QVGA_GET_LUX:
+				get_qvga_lux_data_sc0808cs(e_ctrl);
+				break;
+			case QVGA_CLOSE:
+			default:
+				if(1 == qvga_isOpen){
+					qvga_isOpen = 0;
+					//qvga_hw_off_reset(e_ctrl);
+					cam_eeprom_power_down(e_ctrl);
+				} else {
+					CAM_WARN(CAM_EEPROM, "QVGA power down repeatedly!");
+				}
+				break;
+		}
+#endif
+	}
+	else if(qvga_sensor == QVGA_GC6163B_II)
+	{
+//GC6163B
+#if 1
+		switch(qvga_state){
+			case QVGA_OPEN:
+				if(0 == qvga_isOpen){
+					qvga_isOpen = 1;
+					cam_eeprom_power_up(e_ctrl, power_info);
+					camera_io_dev_read(&e_ctrl->io_master_info,QVGA_GC6163B_SLAVE_ADDR_REG,&chipid, CAMERA_SENSOR_I2C_TYPE_BYTE,CAMERA_SENSOR_I2C_TYPE_BYTE);
+					qvga_hw_on_reset_gc6163b(e_ctrl);
+					init_qvga_setting_gc6163b(e_ctrl);
+					CAM_INFO(CAM_EEPROM, "read chipid 0x%x",chipid);
+				} else {
+					CAM_WARN(CAM_EEPROM, "QVGA power on repeatedly!");
+				}
+				break;
+			case QVGA_GET_LUX:
+				get_qvga_lux_data_gc6163b(e_ctrl);
+				break;
+			case QVGA_CLOSE:
+			default:
+				if(1 == qvga_isOpen){
+					qvga_isOpen = 0;
+					qvga_hw_off_reset_gc6163b(e_ctrl);
+					cam_eeprom_power_down(e_ctrl);
+				} else {
+					CAM_WARN(CAM_EEPROM, "QVGA power down repeatedly!");
+				}
+				break;
+		}
+#endif
+	}else
+	{
+		CAM_ERR(CAM_EEPROM, "qvga error\n");
+	}
+	return count;
+}
+
+static DEVICE_ATTR(rear_qvga, 0664, show_qvga_lux_data, store_qvga_opt);
+static DEVICE_ATTR(cam_name, 0444, get_qvga_name, NULL);
+
+static void cam_qvga_creat(void)
+{
+	static struct class *qvga_class;
+	static struct device *qvga_device;
+
+	qvga_class = class_create(THIS_MODULE, "qvga");   ///sys/class/qvga
+	if (IS_ERR(qvga_class)) {
+		CAM_ERR(CAM_EEPROM, "qvga Unable to create class, err = %d\n",
+			(int)PTR_ERR(qvga_class));
+		return ;
+	}
+	qvga_device =
+		device_create(qvga_class, NULL, MKDEV(0,3), NULL, QVGA_DEVNAME);  ///sys/class/qvga/qvga/
+	if (NULL == qvga_device) {
+		CAM_ERR(CAM_EEPROM, "qvga device_create fail ~");
+	}
+	if (device_create_file(qvga_device,&dev_attr_rear_qvga)) { ///sys/class/qvga/qvga/rear_qvga
+		CAM_ERR(CAM_EEPROM, "qvga device_create_file fail!\n");
+	}
+	if (device_create_file(qvga_device,&dev_attr_cam_name)) { ///sys/class/qvga/qvga/cam_name
+		CAM_ERR(CAM_EEPROM, "qvga device_create_file fail!\n");
+	}
+	return;
+}
+
+
 
 static int cam_eeprom_subdev_close_internal(struct v4l2_subdev *sd,
 	struct v4l2_subdev_fh *fh)
@@ -513,6 +745,23 @@ static int cam_eeprom_component_bind(struct device *dev,
 	platform_set_drvdata(pdev, e_ctrl);
 	e_ctrl->cam_eeprom_state = CAM_EEPROM_INIT;
 	CAM_DBG(CAM_EEPROM, "Component bound successfully");
+//qvga
+	if(soc_private->i2c_info.slave_addr == QVGA_SC080CS_SLAVE_ADDR){
+		if (!qvga_isCreat) {
+			cam_qvga_creat();
+			qvga_isCreat = 1;
+			CAM_INFO(CAM_EEPROM, "QVGA sc080cs Component bound successfully %x",soc_private->i2c_info.slave_addr);
+		}
+		pdev_qvga[QVGA_SC080CS_I - 1] = pdev;
+	}
+	if(soc_private->i2c_info.slave_addr == QVGA_GC6163B_SLAVE_ADDR){
+		if (!qvga_isCreat) {
+			cam_qvga_creat();
+			qvga_isCreat = 1;
+			CAM_INFO(CAM_EEPROM, "QVGA gc6163b Component bound successfully %x",soc_private->i2c_info.slave_addr);
+		}
+		pdev_qvga[QVGA_GC6163B_II - 1] = pdev;
+	}
 
 	return rc;
 free_soc:
