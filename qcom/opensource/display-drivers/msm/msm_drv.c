@@ -58,6 +58,7 @@
 #include "msm_mmu.h"
 #include "sde_wb.h"
 #include "sde_dbg.h"
+#include "lcd_bias.h"
 
 /*
  * MSM driver version:
@@ -2304,6 +2305,7 @@ static int __init msm_drm_register(void)
 	msm_dsi_register();
 	msm_edp_register();
 	msm_hdmi_register();
+	lcd_bias_i2c_init();
 	return 0;
 }
 
@@ -2321,6 +2323,7 @@ static void __exit msm_drm_unregister(void)
 	dp_display_unregister();
 	dsi_display_unregister();
 	sde_rsc_unregister();
+	lcd_bias_i2c_exit();
 	platform_driver_unregister(&msm_platform_driver);
 }
 

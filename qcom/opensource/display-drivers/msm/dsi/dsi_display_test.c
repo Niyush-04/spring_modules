@@ -20,7 +20,7 @@ static void dsi_display_test_work(struct work_struct *work)
 	struct dsi_display_mode *modes;
 	u32 count = 0;
 	int rc = 0;
-
+	
 	test = container_of(work, struct dsi_display_test, test_work);
 
 	display = test->display;

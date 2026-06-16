@@ -11,6 +11,10 @@
 #include <drm/drm_mipi_dsi.h>
 #include "msm_drv.h"
 
+#ifdef MI_DISPLAY_MODIFY
+#include <drm/mi_disp.h>
+#endif
+
 #define DSI_H_TOTAL(t) (((t)->h_active) + ((t)->h_back_porch) + \
 			((t)->h_sync_width) + ((t)->h_front_porch))
 
@@ -296,8 +300,79 @@ enum dsi_cmd_set_type {
 	DSI_CMD_SET_POST_TIMING_SWITCH,
 	DSI_CMD_SET_QSYNC_ON,
 	DSI_CMD_SET_QSYNC_OFF,
+	DSI_CMD_SET_DISP_144HZ,
+	DSI_CMD_SET_DISP_120HZ,
+	DSI_CMD_SET_DISP_90HZ,
+	DSI_CMD_SET_DISP_60HZ,
+	DSI_CMD_SET_DISP_50HZ,
+	DSI_CMD_SET_DISP_48HZ,
+	DSI_CMD_SET_DISP_45HZ,
+	DSI_CMD_SET_DISP_40HZ,
+	DSI_CMD_SET_DISP_30HZ,
+#ifdef MI_DISPLAY_MODIFY
+	DSI_CMD_SET_MI_DIMMINGON,
+	DSI_CMD_SET_MI_DIMMINGOFF,
+	DSI_CMD_SET_MI_HBM_ON,
+	DSI_CMD_SET_MI_HBM_OFF,
+	DSI_CMD_SET_MI_DOZE_HBM,
+	DSI_CMD_SET_MI_DOZE_LBM,
+	DSI_CMD_SET_MI_FLAT_MODE_ON,
+	DSI_CMD_SET_MI_FLAT_MODE_OFF,
+	DSI_CMD_SET_MI_FLAT_MODE_SEC_ON,
+	DSI_CMD_SET_MI_FLAT_MODE_SEC_OFF,
+	DSI_CMD_SET_MI_PREPARE_READ_FLAT,
+	DSI_CMD_SET_MI_PREPARE_READ_FLAT_OFF,
+	DSI_CMD_SET_MI_DC_ON,
+	DSI_CMD_SET_MI_DC_OFF,
+	DSI_CMD_SET_MI_SWITCH_PAGE,
+	DSI_CMD_SET_MI_ROUND_CORNER_ON,
+	DSI_CMD_SET_MI_ROUND_CORNER_OFF,
+	DSI_CMD_SET_MI_EXIT_90FPS_TIMING_SWITCH,
+	DSI_CMD_SET_MI_FRAME_SWITCH_MODE_SEC,
+	DSI_CMD_SET_MI_DOZE_TO_OFF,
+	DSI_CMD_SET_MI_PANEL_STATUS_OFFSET,
+	DSI_CMD_SET_MI_PANEL_STATUS_AFTER,
+	DSI_CMD_SET_MI_PANEL_BUILD_ID,
+	DSI_CMD_SET_MI_PANEL_BUILD_ID_SUB_WRITE_1,
+	DSI_CMD_SET_MI_PANEL_BUILD_ID_SUB_WRITE_2,
+	DSI_CMD_SET_MI_PANEL_BUILD_ID_SUB_READ,
+	DSI_CMD_SET_MI_PANEL_CELL_ID_READ,
+	DSI_CMD_SET_MI_PANEL_CELL_ID_READ_PRE_TX,
+	DSI_CMD_SET_MI_PANEL_CELL_ID_READ_AFTER_TX,
+	DSI_CMD_SET_MI_PANEL_WP_READ,
+	DSI_CMD_SET_MI_PANEL_WP_READ_PRE_TX,
+	DSI_CMD_SET_MI_FLATMODE_STATUS,
+	DSI_CMD_SET_MI_FLATMODE_STATUS_OFFSET,
+	DSI_CMD_SET_MI_FLATMODE_STATUS_OFFSET_END,
+	DSI_CMD_SET_DISP_CABCUION,
+	DSI_CMD_SET_DISP_CABCSTILLON,
+	DSI_CMD_SET_DISP_CABCMOVIEON,
+	DSI_CMD_SET_DISP_CABCOFF,
+        DSI_CMD_SET_PROXIMITY,
+	DSI_CMD_SET_BL_ON,
+	DSI_CMD_SET_BL_OFF,
+#endif
 	DSI_CMD_SET_MAX
 };
+
+#ifdef MI_DISPLAY_MODIFY
+enum dsi_cmd_set_upate_type {
+	DSI_CMD_SET_ON_UPDATE,
+	DSI_CMD_SET_NOLP_UPDATE,
+	DSI_CMD_SET_TIMING_SWITCH_UPDATE,
+	DSI_CMD_SET_QSYNC_ON_UPDATE,
+	DSI_CMD_SET_QSYNC_OFF_UPDATE,
+	DSI_CMD_SET_MI_HBM_ON_UPDATE,
+	DSI_CMD_SET_MI_HBM_OFF_UPDATE,
+	DSI_CMD_SET_MI_DOZE_HBM_UPDATE,
+	DSI_CMD_SET_MI_DOZE_LBM_UPDATE,
+	DSI_CMD_SET_MI_FLAT_MODE_ON_UPDATE,
+	DSI_CMD_SET_MI_FLAT_MODE_OFF_UPDATE,
+	DSI_CMD_SET_MI_DC_ON_UPDATE,
+	DSI_CMD_SET_MI_DC_OFF_UPDATE,
+	DSI_CMD_UPDATE_MAX
+};
+#endif
 
 /**
  * enum dsi_cmd_set_state - command set state
@@ -534,6 +609,10 @@ struct dsi_host_common_cfg {
 	u32 dma_sched_window;
 	u32 vpadding;
 	bool line_insertion_enable;
+#ifdef MI_DISPLAY_MODIFY
+	u32 clk_strength;
+	u32 deemph_eq_strength;
+#endif
 };
 
 /**
@@ -611,6 +690,15 @@ struct dsi_host_config {
 	struct dsi_lane_map lane_map;
 };
 
+#ifdef MI_DISPLAY_MODIFY
+struct dsi_cmd_update_info {
+	enum dsi_cmd_set_type type;
+	u32 mipi_address;
+	u32 index;
+	u32 length;
+};
+#endif
+
 /**
  * struct dsi_display_mode_priv_info - private mode info that will be attached
  *                             with each drm mode
@@ -673,6 +761,13 @@ struct dsi_display_mode_priv_info {
 	bool widebus_support;
 	u32 allowed_mode_switch;
 	bool disable_rsc_solver;
+
+	u32 *mi_per_timing_fps;
+	u32 mi_per_timing_fps_len;
+#ifdef MI_DISPLAY_MODIFY
+	struct dsi_cmd_update_info *cmd_update[DSI_CMD_UPDATE_MAX];
+	u32 cmd_update_count[DSI_CMD_UPDATE_MAX];
+#endif
 };
 
 /**
@@ -687,6 +782,9 @@ struct dsi_display_mode_priv_info {
  */
 struct dsi_display_mode {
 	struct dsi_mode_info timing;
+#ifdef MI_DISPLAY_MODIFY
+	struct mi_mode_info mi_timing;
+#endif
 	u32 pixel_clk_khz;
 	u32 dsi_mode_flags;
 	u32 panel_mode_caps;

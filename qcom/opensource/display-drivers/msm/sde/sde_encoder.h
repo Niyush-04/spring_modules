@@ -377,6 +377,13 @@ void sde_encoder_trigger_kickoff_pending(struct drm_encoder *encoder);
 void sde_encoder_kickoff(struct drm_encoder *encoder, bool config_changed);
 
 /**
+ * sde_encoder_vid_wait_for_active - wait Vactive region for some mark region
+ * @drm_enc:    Pointer to drm encoder structure
+ * @Return:     non zero value if wait timeout occurred
+ */
+int sde_encoder_vid_wait_for_active(struct drm_encoder *enc);
+
+/**
  * sde_encoder_wait_for_event - Waits for encoder events
  * @encoder:	encoder pointer
  * @event:      event to wait for
