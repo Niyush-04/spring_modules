@@ -559,6 +559,52 @@ LOCAL_MODULE_TAGS         := optional
 LOCAL_MODULE_DEBUG_ENABLE := true
 LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
 include $(DLKM_DIR)/Build_external_kernelmodule.mk
+########################### SIA8150FR PA  ##############################
+include $(CLEAR_VARS)
+LOCAL_SRC_FILES           := $(AUDIO_SRC_FILES)
+LOCAL_MODULE              := sipa_dlkm.ko
+LOCAL_MODULE_KBUILD_NAME  := asoc/codecs/sipa/sipa_dlkm.ko
+LOCAL_MODULE_TAGS         := optional
+LOCAL_MODULE_DEBUG_ENABLE := true
+LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
+include $(DLKM_DIR)/Build_external_kernelmodule.mk
+#######################################################################
+include $(CLEAR_VARS)
+LOCAL_SRC_FILES           := $(AUDIO_SRC_FILES)
+LOCAL_MODULE              := sipa_tuning_dlkm.ko
+LOCAL_MODULE_KBUILD_NAME  := asoc/codecs/sipa/sipa_tuning_dlkm.ko
+LOCAL_MODULE_TAGS         := optional
+LOCAL_MODULE_DEBUG_ENABLE := true
+LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
+include $(DLKM_DIR)/Build_external_kernelmodule.mk
+########################### FS1589N PA ########################
+include $(CLEAR_VARS)
+LOCAL_SRC_FILES           := $(AUDIO_SRC_FILES)
+LOCAL_MODULE              := fs15xxx_drv_dlkm.ko
+LOCAL_MODULE_KBUILD_NAME  := asoc/codecs/fs15xxx/fs15xxx_drv_dlkm.ko
+LOCAL_MODULE_TAGS         := optional
+LOCAL_MODULE_DEBUG_ENABLE := true
+LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
+include $(DLKM_DIR)/Build_external_kernelmodule.mk
+###############################################################
+include $(CLEAR_VARS)
+LOCAL_SRC_FILES           := $(AUDIO_SRC_FILES)
+LOCAL_MODULE              := fs15xxx_amp_dlkm.ko
+LOCAL_MODULE_KBUILD_NAME  := asoc/codecs/fs15xxx/fs15xxx_amp_dlkm.ko
+LOCAL_MODULE_TAGS         := optional
+LOCAL_MODULE_DEBUG_ENABLE := true
+LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
+include $(DLKM_DIR)/Build_external_kernelmodule.mk
+########################### audio_info ################################
+include $(CLEAR_VARS)
+LOCAL_SRC_FILES           := $(AUDIO_SRC_FILES)
+LOCAL_MODULE              := lct_audio_info_dlkm.ko
+LOCAL_MODULE_KBUILD_NAME  := asoc/codecs/lct_audio_info/lct_audio_info_dlkm.ko
+LOCAL_MODULE_TAGS         := optional
+LOCAL_MODULE_DEBUG_ENABLE := true
+LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
+include $(DLKM_DIR)/Build_external_kernelmodule.mk
+###############################################################
 endif
 
 ifeq ($(call is-board-platform-in-list,holi blair),true)

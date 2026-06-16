@@ -111,6 +111,11 @@ LOCAL_MODULE_KO_DIRS += asoc/codecs/wcd937x/wcd937x_dlkm.ko
 LOCAL_MODULE_KO_DIRS += asoc/codecs/wcd937x/wcd937x_slave_dlkm.ko
 LOCAL_MODULE_KO_DIRS += asoc/codecs/wcd938x/wcd938x_dlkm.ko
 LOCAL_MODULE_KO_DIRS += asoc/codecs/wcd938x/wcd938x_slave_dlkm.ko
+LOCAL_MODULE_KO_DIRS += asoc/codecs/sipa/sipa_dlkm.ko
+LOCAL_MODULE_KO_DIRS += asoc/codecs/sipa/sipa_tuning_dlkm.ko
+LOCAL_MODULE_KO_DIRS += asoc/codecs/fs15xxx/fs15xxx_drv_dlkm.ko
+LOCAL_MODULE_KO_DIRS += asoc/codecs/fs15xxx/fs15xxx_amp_dlkm.ko
+LOCAL_MODULE_KO_DIRS += asoc/codecs/lct_audio_info/lct_audio_info_dlkm.ko
 endif
 
 ifeq ($(call is-board-platform-in-list, niobe),true)

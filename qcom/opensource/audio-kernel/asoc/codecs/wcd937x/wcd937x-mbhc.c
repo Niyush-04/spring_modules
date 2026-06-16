@@ -1117,11 +1117,14 @@ int wcd937x_mbhc_init(struct wcd937x_mbhc **mbhc,
 	}
 
 	(*mbhc) = wcd937x_mbhc;
+/*
+	//ADD: Audio_Improve_HSDET
 	snd_soc_add_component_controls(component, impedance_detect_controls,
 				   ARRAY_SIZE(impedance_detect_controls));
 	snd_soc_add_component_controls(component, hph_type_detect_controls,
 				   ARRAY_SIZE(hph_type_detect_controls));
-
+	//END Audio_Improve_HSDET
+*/
 	return 0;
 err:
 	devm_kfree(component->dev, wcd937x_mbhc);

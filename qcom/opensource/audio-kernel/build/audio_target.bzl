@@ -37,6 +37,11 @@ def define_blair(t, v, lt=None):
             "wcd937x_slave_dlkm",
             "wcd938x_dlkm",
             "wcd938x_slave_dlkm",
+            "sipa_dlkm",
+            "sipa_tuning_dlkm",
+            "fs15xxx_drv_dlkm",
+            "fs15xxx_amp_dlkm",
+            "lct_audio_info_dlkm",
         ],
         config_options = [
             "CONFIG_SND_SOC_HOLI",
@@ -49,6 +54,11 @@ def define_blair(t, v, lt=None):
             "CONFIG_SND_SOC_WCD_IRQ",
             "CONFIG_SND_SOC_WCD9XXX_V2",
             "CONFIG_SND_SOC_WCD_MBHC_ADC",
+            "CONFIG_WCD937X_EXT_SPK",
+            "CONFIG_SND_SOC_SIPA",
+            "CONFIG_SND_SOC_FS15XXX",
+            "CONFIG_LCT_AUDIO_INFO",
+            "CONFIG_XIAOMI_AUDIO_MBHC",
         ],
         lunch_target = lt,
     )

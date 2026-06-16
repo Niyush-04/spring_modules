@@ -72,7 +72,12 @@ AUDIO_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/bolero_cdc_dlkm.ko \
 	$(KERNEL_MODULES_OUT)/rx_macro_dlkm.ko \
 	$(KERNEL_MODULES_OUT)/wsa881x_analog_dlkm.ko \
 	$(KERNEL_MODULES_OUT)/wcd937x_dlkm.ko \
-	$(KERNEL_MODULES_OUT)/wcd937x_slave_dlkm.ko
+	$(KERNEL_MODULES_OUT)/wcd937x_slave_dlkm.ko \
+	$(KERNEL_MODULES_OUT)/sipa_dlkm.ko \
+	$(KERNEL_MODULES_OUT)/sipa_tuning_dlkm.ko \
+	$(KERNEL_MODULES_OUT)/fs15xxx_drv_dlkm.ko \
+	$(KERNEL_MODULES_OUT)/fs15xxx_amp_dlkm.ko \
+	$(KERNEL_MODULES_OUT)/lct_audio_info_dlkm.ko
 endif
 ifneq (,$(call is-board-platform-in-list2, holi blair))
 AUDIO_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/wcd938x_dlkm.ko \

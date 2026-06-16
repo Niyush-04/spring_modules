@@ -43,6 +43,10 @@
 #include "msm_common.h"
 #include "msm_holi_dailink.h"
 
+#if IS_ENABLED(CONFIG_SND_SOC_SIPA)
+#include "codecs/sipa/sipa_aux_dev_if.h"
+#endif /*CONFIG_SND_SOC_SIPA*/
+
 #define DRV_NAME "holi-asoc-snd"
 #define __CHIPSET__ "HOLI "
 #define MSM_DAILINK_NAME(name) (__CHIPSET__#name)
@@ -234,9 +238,25 @@ static struct wcd_mbhc_config wcd_mbhc_cfg = {
 	.swap_gnd_mic = NULL,
 	.hs_ext_micbias = true,
 	.key_code[0] = KEY_MEDIA,
+//ADD: MiHeadsetPatch
+#if IS_ENABLED(CONFIG_XIAOMI_AUDIO_MBHC) && IS_ENABLED(CONFIG_FACTORY_BUILD)
+	.key_code[1] = KEY_VOLUMEUP,
+	.key_code[2] = KEY_VOLUMEDOWN,
+	.key_code[3] = 0,
+#elif IS_ENABLED(CONFIG_FACTORY_BUILD)
+	.key_code[1] = KEY_VOLUMEUP,
+	.key_code[2] = KEY_VOLUMEDOWN,
+	.key_code[3] = 0,
+#elif IS_ENABLED(CONFIG_XIAOMI_AUDIO_MBHC)
+	.key_code[1] = BTN_1,
+	.key_code[2] = BTN_2,
+	.key_code[3] = 0,
+#else
 	.key_code[1] = KEY_VOICECOMMAND,
 	.key_code[2] = KEY_VOLUMEUP,
 	.key_code[3] = KEY_VOLUMEDOWN,
+#endif
+//END MiHeadsetPatch
 	.key_code[4] = 0,
 	.key_code[5] = 0,
 	.key_code[6] = 0,
@@ -247,6 +267,7 @@ static struct wcd_mbhc_config wcd_mbhc_cfg = {
 	.anc_micbias = MIC_BIAS_2,
 	.enable_anc_mic_detect = false,
 	.moisture_duty_cycle_en = true,
+	.usbhs_status_value = 0, /*ADD: Audio_UsbHeadsetDirection*/
 };
 
 struct msm_common_pdata *msm_common_get_pdata(struct snd_soc_card *card)
@@ -266,6 +287,24 @@ void msm_common_set_pdata(struct snd_soc_card *card,
 	pdata->common_pdata = common_pdata;
 }
 
+//ADD: Audio_UsbHeadsetDirection
+/* usbhs_status_value Contains three states: 0, 1, 2.
+ * 0: Indicates that the usbhs is not plugged in.
+ * 1: Indicates that the usbhs is plugged in and not flipped.
+ * 2: Indicates that the usbhs is plugged in and flipped once.
+ */
+static int usbhs_direction_get(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.integer.value[0] = wcd_mbhc_cfg.usbhs_status_value;
+	return 0;
+}
+
+static const struct snd_kcontrol_new msm_common_snd_controls[] = {
+	SOC_SINGLE_EXT("USB Headset Direction", 0, 0, 2, 0,usbhs_direction_get, NULL),
+};
+//END Audio_UsbHeadsetDirection
+
 static bool msm_usbc_swap_gnd_mic(struct snd_soc_component *component,
 				  bool active)
 {
@@ -275,6 +314,7 @@ static bool msm_usbc_swap_gnd_mic(struct snd_soc_component *component,
 
 	if (!pdata->fsa_handle)
 		return false;
+	wcd_mbhc_cfg.usbhs_status_value = 2; /*ADD: Audio_UsbHeadsetDirection*/
 
 	return fsa4480_switch_event(pdata->fsa_handle, FSA_MIC_GND_SWAP);
 }
@@ -469,8 +509,15 @@ static void *def_wcd_mbhc_cal(void)
 		(sizeof(btn_cfg->_v_btn_low[0]) * btn_cfg->num_btn);
 
 	btn_high[0] = 75;
+//ADD: MiHeadsetPatch
+#if IS_ENABLED(CONFIG_XIAOMI_AUDIO_MBHC)
+	btn_high[1] = 225;
+	btn_high[2] = 450;
+#else
 	btn_high[1] = 150;
 	btn_high[2] = 237;
+#endif
+//END MiHeadsetPatch
 	btn_high[3] = 500;
 	btn_high[4] = 500;
 	btn_high[5] = 500;
@@ -1306,6 +1353,10 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev)
 	return card;
 }
 
+#if IS_ENABLED(CONFIG_LCT_AUDIO_INFO)
+extern int lct_audio_info_create_sysfs(void);
+#endif
+
 static int msm_rx_tx_codec_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_component *bolero_component = NULL;
@@ -1329,10 +1380,23 @@ static int msm_rx_tx_codec_init(struct snd_soc_pcm_runtime *rtd)
 	}
 	pr_err("%s:: bolero comp lookup done\n", __func__);
 
+	//ADD: Audio_UsbHeadsetDirection
+	ret = snd_soc_add_component_controls(bolero_component, msm_common_snd_controls,
+                                             ARRAY_SIZE(msm_common_snd_controls));
+	if (ret < 0) {
+		pr_err("%s: add common snd controls failed: %d\n",__func__, ret);
+		return ret;
+	}
+	//END Audio_UsbHeadsetDirection
+
 	dapm = snd_soc_component_get_dapm(bolero_component);
 	snd_soc_dapm_new_controls(dapm, msm_int_dapm_widgets,
 		ARRAY_SIZE(msm_int_dapm_widgets));
 	pr_err("%s:: dapm new controls msm_int_dapm_widgets \n", __func__);
+
+	#if IS_ENABLED(CONFIG_LCT_AUDIO_INFO)
+	lct_audio_info_create_sysfs();
+	#endif
 
 	snd_soc_dapm_ignore_suspend(dapm, "Digital Mic0");
 	snd_soc_dapm_ignore_suspend(dapm, "Digital Mic1");
@@ -1655,6 +1719,10 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 			__func__, "qcom,wsa-aux-dev-prefix");
 	}
 
+	#if IS_ENABLED(CONFIG_SND_SOC_SIPA)
+	soc_aux_init_only_sia81xx(pdev, card);
+	#endif /*CONFIG_SND_SOC_SIPA*/
+
 	ret = devm_snd_soc_register_card(&pdev->dev, card);
 	if (ret == -EPROBE_DEFER) {
 		if (codec_reg_done)
@@ -1786,7 +1854,11 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 
 	return 0;
 err:
+	#if IS_ENABLED(CONFIG_SND_SOC_SIPA)
+	soc_aux_deinit_only_sia81xx(pdev, card);
+	#endif /*CONFIG_SND_SOC_SIPA*/
 	devm_kfree(&pdev->dev, pdata);
+	printk("<%s><%d>: X, failed.\n", __func__, __LINE__);
 	return ret;
 }
 

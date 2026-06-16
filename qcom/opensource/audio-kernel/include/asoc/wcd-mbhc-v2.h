@@ -137,6 +137,11 @@ do {                                                    \
 #define WCD_MBHC_JACK_BUTTON_MASK (SND_JACK_BTN_0 | SND_JACK_BTN_1 | \
 				  SND_JACK_BTN_2 | SND_JACK_BTN_3 | \
 				  SND_JACK_BTN_4 | SND_JACK_BTN_5)
+
+//ADD: Typec_Mode_For_Audio
+#define WCD_MBHC_JACK_USB_3_5_MASK (SND_JACK_HEADSET | SND_JACK_VIDEOOUT)
+//END Typec_Mode_For_Audio
+
 #define OCP_ATTEMPT 20
 #define HS_DETECT_PLUG_TIME_MS (3 * 1000)
 #define SPECIAL_HS_DETECT_TIME_MS (2 * 1000)
@@ -154,6 +159,11 @@ do {                                                    \
 #define WCD_MBHC_BTN_PRESS_COMPL_TIMEOUT_MS  50
 #define ANC_DETECT_RETRY_CNT 7
 #define WCD_MBHC_SPL_HS_CNT  1
+
+//ADD: Typec_Mode_For_Audio
+#define NOTHING_ATTACHED	0
+#define AUDIO_ADAPTER		4
+//END Typec_Mode_For_Audio
 
 enum wcd_mbhc_detect_logic {
 	WCD_DETECTION_LEGACY,
@@ -441,6 +451,7 @@ struct wcd_mbhc_config {
 	u32 enable_usbc_analog;
 	bool moisture_duty_cycle_en;
 	bool usbss_hsj_connect_enable;
+	int usbhs_status_value; /*ADD: Audio_UsbHeadsetDirection*/
 };
 
 struct wcd_mbhc_intr {
@@ -601,6 +612,9 @@ struct wcd_mbhc {
 
 	struct snd_soc_jack headset_jack;
 	struct snd_soc_jack button_jack;
+	//ADD: Typec_Mode_For_Audio
+	struct snd_soc_jack usb_3_5_jack;
+	//END Typec_Mode_For_Audio
 	struct mutex codec_resource_lock;
 
 	/* Holds codec specific interrupt mapping */
@@ -623,6 +637,9 @@ struct wcd_mbhc {
 
 	struct wcd_mbhc_fn *mbhc_fn;
 	bool force_linein;
+	//ADD: Typec_Mode_For_Audio
+	int usbc_mode;
+	//END Typec_Mode_For_Audio
 	struct device_node *wcd_usbss_aatc_dev_np;
 	struct device_node *fsa_aatc_dev_np;
 	struct notifier_block aatc_dev_nb;

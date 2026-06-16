@@ -470,3 +470,49 @@ audio_modules.register(
     config_option = "CONFIG_SND_SOC_WCD9378_SLAVE",
     srcs = ["wcd9378-slave.c"]
 )
+# >>>> SIPA MODULES <<<<
+audio_modules.register(
+    name = "sipa_dlkm",
+    path = ASOC_CODECS_PATH + "/sipa",
+    config_option = "CONFIG_SND_SOC_SIPA",
+    srcs = [
+        "sipa.c",
+        "sipa_91xx.c",
+        "sipa_aux_dev_if.c",
+        "sipa_parameter.c",
+        "sipa_regmap.c",
+    ]
+)
+audio_modules.register(
+    name = "sipa_tuning_dlkm",
+    path = ASOC_CODECS_PATH + "/sipa",
+    config_option = "CONFIG_SND_SOC_SIPA",
+    srcs = [
+        "sipa_tuning_if.c",
+        "sipa_tuning_misc.c",
+    ]
+)
+# >>>> FS1589N MODULES <<<<
+audio_modules.register(
+    name = "fs15xxx_drv_dlkm",
+    path = ASOC_CODECS_PATH + "/fs15xxx",
+    config_option = "CONFIG_SND_SOC_FS15XXX",
+    srcs = [
+        "frsm-i2ca.c",
+        "frsm-amp-drv.c",
+        "frsm-i2ca-2in1.c",
+    ]
+)
+audio_modules.register(
+    name = "fs15xxx_amp_dlkm",
+    path = ASOC_CODECS_PATH + "/fs15xxx",
+    config_option = "CONFIG_SND_SOC_FS15XXX",
+    srcs = ["spkr-amp-mngr.c"]
+)
+# >>>> PAINFO MODULES <<<<
+audio_modules.register(
+    name = "lct_audio_info_dlkm",
+    path = ASOC_CODECS_PATH + "/lct_audio_info",
+    config_option = "CONFIG_LCT_AUDIO_INFO ",
+    srcs = ["lct_audio_info.c"]
+)

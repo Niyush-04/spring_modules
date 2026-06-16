@@ -28,7 +28,9 @@
 #include "wcd937x.h"
 #include "internal.h"
 #include "asoc/bolero-slave-internal.h"
-
+#if IS_ENABLED(CONFIG_LCT_AUDIO_INFO)
+#include "../lct_audio_info/lct_audio_info.h"
+#endif
 #define WCD9370_VARIANT 0
 #define WCD9375_VARIANT 5
 #define WCD937X_VARIANT_ENTRY_SIZE 32
@@ -71,6 +73,58 @@ static const DECLARE_TLV_DB_SCALE(analog_gain, 0, 25, 1);
 static int wcd937x_handle_post_irq(void *data);
 static int wcd937x_reset(struct device *dev);
 static int wcd937x_reset_low(struct device *dev);
+
+#if IS_ENABLED(CONFIG_WCD937X_EXT_SPK)
+enum wcd937x_dev_scene {
+	WCD937X_AUX_SCENE_MUSIC = 0,
+	WCD937X_AUX_SCENE_VOICE,
+	WCD937X_AUX_SCENE_VOIP,
+	WCD937X_AUX_SCENE_FM,
+	WCD937X_AUX_SCENE_BYPASS,
+	WCD937X_AUX_SCENE_OFF,
+	WCD937X_AUX_SCENE_INVARIABLE,
+	WCD937X_AUX_SCENE_MAX
+};
+
+static const char *const wcd937x_ext_spk_mode_function[] = {
+	"Music", "Voice", "Voip", "Fm", "Bypass", "Off", "Invariable",
+};
+
+static const struct soc_enum wcd937x_ext_spk_mode_enum =
+	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(wcd937x_ext_spk_mode_function),
+			wcd937x_ext_spk_mode_function);
+#endif /* CONFIG_WCD937X_EXT_SPK */
+
+#if IS_ENABLED(CONFIG_SND_SOC_SIPA)
+enum sipa_scene {
+	SIPA_SCENE_PLAYBACK = 0,
+	SIPA_SCENE_VOICE,
+	SIPA_SCENE_VOIP,
+	SIPA_SCENE_RECEIVER,
+	SIPA_SCENE_FACTORY,
+	SIPA_SCENE_FM,
+	SIPA_SCENE_MAX
+};
+extern int sipa_multi_channel_power_on_and_set_scene(uint32_t scene, uint8_t pa_idx);
+extern int sipa_multi_channel_power_off(uint8_t pa_idx);
+#endif /* CONFIG_SND_SOC_SIPA */
+
+#if IS_ENABLED(CONFIG_SND_SOC_FS15XXX)
+enum fsm_scene {
+	FSM_SCENE_MUSIC = 0,
+	FSM_SCENE_VOICE,
+	FSM_SCENE_MMI,
+	FSM_SCENE_BYPASS,
+	FSM_SCENE_MAX
+};
+extern int frsm_i2ca_set_scene(int spkid, int scene);
+extern int frsm_i2ca_spk_switch(int spkid, bool on);
+#endif /* CONFIG_SND_SOC_FS15XXX */
+
+#if IS_ENABLED(CONFIG_LCT_AUDIO_INFO)
+extern enum audio_pa_chip_type audio_pa_chip_type_get(void);
+enum audio_pa_chip_type g_wcd937x_ext_pa_info;
+#endif
 
 static const struct regmap_irq wcd937x_irqs[WCD937X_NUM_IRQS] = {
 	REGMAP_IRQ_REG(WCD937X_IRQ_MBHC_BUTTON_PRESS_DET, 0, 0x01),
@@ -182,6 +236,10 @@ static int wcd937x_init_reg(struct snd_soc_component *component)
 	usleep_range(10000, 10010);
 	snd_soc_component_update_bits(component, WCD937X_ANA_BIAS,
 				0x40, 0x00);
+	//ADD: Audio_OCP_Enable
+	snd_soc_component_update_bits(component, WCD937X_ANA_EAR,
+				0x40, 0x40);
+	//END Audio_OCP_Enable
 	snd_soc_component_update_bits(component,
 				WCD937X_HPH_SURGE_HPHLR_SURGE_EN,
 				0xFF, 0xD9);
@@ -1166,6 +1224,22 @@ static int wcd937x_codec_enable_ear_pa(struct snd_soc_dapm_widget *w,
 			snd_soc_component_update_bits(component,
 					WCD937X_DIGITAL_PDM_WD_CTL0,
 					0x07, 0x00);
+		/*CR-3062852
+		* WCD937x_EAR_PA_Output_Impedance_Issue begain*/
+		usleep_range(10000, 10010);
+		/* disable EAR CnP FSM */
+		snd_soc_component_update_bits(component,
+				WCD937X_EAR_EAR_EN_REG, 0x02, 0x00);
+		/* toggle EAR PA to let PA control registers take effect */
+		snd_soc_component_update_bits(component,
+				WCD937X_ANA_EAR, 0x80, 0x80);
+		snd_soc_component_update_bits(component,
+				WCD937X_ANA_EAR, 0x80, 0x00);
+		/* enable EAR CnP FSM */
+		snd_soc_component_update_bits(component,
+				WCD937X_EAR_EAR_EN_REG, 0x02, 0x02);
+		/*CR-3062852
+		* WCD937x_EAR_PA_Output_Impedance_Issue end*/
 		break;
 	};
 	return ret;
@@ -2014,6 +2088,119 @@ static int wcd937x_tx_ch_pwr_level_put(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+#if IS_ENABLED(CONFIG_SND_SOC_SIPA)
+static int sipa_dev_0_pa(bool enable, int mode)
+{
+	int ret = 0;
+	if(enable){
+		switch (mode) {
+			case WCD937X_AUX_SCENE_MUSIC:
+				sipa_multi_channel_power_on_and_set_scene(SIPA_SCENE_PLAYBACK, 1);
+				break;
+			case WCD937X_AUX_SCENE_VOICE:
+				sipa_multi_channel_power_on_and_set_scene(SIPA_SCENE_VOICE, 1);
+				break;
+			case WCD937X_AUX_SCENE_VOIP:
+				sipa_multi_channel_power_on_and_set_scene(SIPA_SCENE_VOIP, 1);
+				break;
+			case WCD937X_AUX_SCENE_BYPASS:
+				sipa_multi_channel_power_on_and_set_scene(SIPA_SCENE_FACTORY, 1);
+				break;
+			case WCD937X_AUX_SCENE_FM:
+				sipa_multi_channel_power_on_and_set_scene(SIPA_SCENE_PLAYBACK, 1);
+				break;
+			default:
+				ret = -EPERM;
+				pr_err("%s: unsupported %d, set failed\n", __func__, mode);
+				break;
+		}
+	}else{
+		sipa_multi_channel_power_off(1);
+	}
+	return ret;
+}
+#endif
+
+#if IS_ENABLED(CONFIG_SND_SOC_FS15XXX)
+static int fsm_dev_0_pa(bool enable, int mode)
+{
+	int ret = 0;
+	if(enable){
+		switch (mode) {
+			case WCD937X_AUX_SCENE_MUSIC:
+				frsm_i2ca_set_scene(1, FSM_SCENE_MUSIC);
+				break;
+			case WCD937X_AUX_SCENE_VOICE:
+				frsm_i2ca_set_scene(1, FSM_SCENE_VOICE);
+				break;
+			case WCD937X_AUX_SCENE_VOIP:
+				frsm_i2ca_set_scene(1, FSM_SCENE_VOICE);
+				break;
+			case WCD937X_AUX_SCENE_BYPASS:
+				frsm_i2ca_set_scene(1, FSM_SCENE_BYPASS);
+				break;
+			case WCD937X_AUX_SCENE_FM:
+				frsm_i2ca_set_scene(1, FSM_SCENE_MUSIC);
+				break;
+			default:
+				ret = -EPERM;
+				pr_err("%s: unsupported %d, set failed\n", __func__, mode);
+				break;
+		}
+	}
+	if(ret == 0){
+		frsm_i2ca_spk_switch(1,enable);
+	}
+	return ret;
+}
+#endif
+
+#if IS_ENABLED(CONFIG_WCD937X_EXT_SPK)
+static unsigned int g_wcd937x_aux_ext_spk_mode = WCD937X_AUX_SCENE_OFF;
+static int wcd937x_aux_ext_spk_mode_get(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	int current_mode = g_wcd937x_aux_ext_spk_mode;
+	ucontrol->value.integer.value[0] = current_mode;
+	pr_debug("%s: get mode:%d\n", __func__, current_mode);
+	return 0;
+}
+
+static int wcd937x_aux_ext_spk_mode_set(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	int set_mode;
+	int current_mode = WCD937X_AUX_SCENE_OFF;
+	set_mode = ucontrol->value.integer.value[0];
+	if (set_mode == WCD937X_AUX_SCENE_OFF || set_mode == WCD937X_AUX_SCENE_INVARIABLE) {
+		pr_debug("%s: ignore set mode:%d\n", __func__, set_mode);
+		return 0;
+	} else if (set_mode < WCD937X_AUX_SCENE_MUSIC || set_mode >= WCD937X_AUX_SCENE_MAX) {
+		pr_err("%s: Invalid set mode:%d\n", __func__, set_mode);
+		return -EINVAL;
+	}
+	current_mode = g_wcd937x_aux_ext_spk_mode;
+	if ((current_mode != WCD937X_AUX_SCENE_OFF) && (current_mode != set_mode)) {
+		#if IS_ENABLED(CONFIG_LCT_AUDIO_INFO)
+		g_wcd937x_ext_pa_info = audio_pa_chip_type_get();
+		pr_err("%s: painfo:%d, force update mode:%d\n", __func__, g_wcd937x_ext_pa_info, set_mode);
+		if (g_wcd937x_ext_pa_info == PA_CHIP_TYPE_SIPA) {
+			#if IS_ENABLED(CONFIG_SND_SOC_SIPA)
+			sipa_dev_0_pa(true, set_mode);
+			#endif
+		} else if (g_wcd937x_ext_pa_info == PA_CHIP_TYPE_FSM) {
+			#if IS_ENABLED(CONFIG_SND_SOC_FS15XXX)
+			fsm_dev_0_pa(true, set_mode);
+			#endif
+		}
+		#endif
+	}
+	g_wcd937x_aux_ext_spk_mode = set_mode;
+	pr_debug("%s: set mode:%d success\n", __func__, set_mode);
+	return 0;
+}
+#endif /* CONFIG_WCD937X_EXT_SPK */
+
 static int wcd937x_ear_pa_gain_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
@@ -2371,6 +2558,10 @@ static const struct snd_kcontrol_new wcd937x_snd_controls[] = {
 		wcd937x_tx_ch_pwr_level_get, wcd937x_tx_ch_pwr_level_put),
 	SOC_ENUM_EXT("TX CH3 PWR", wcd937x_tx_ch_pwr_level_enum,
 		wcd937x_tx_ch_pwr_level_get, wcd937x_tx_ch_pwr_level_put),
+#if IS_ENABLED(CONFIG_WCD937X_EXT_SPK)
+	SOC_ENUM_EXT("AUX EXT SPK MODE", wcd937x_ext_spk_mode_enum,
+			wcd937x_aux_ext_spk_mode_get, wcd937x_aux_ext_spk_mode_set),
+#endif /* CONFIG_WCD937X_EXT_SPK */
 };
 
 static const struct snd_kcontrol_new adc1_switch[] = {
@@ -2447,6 +2638,50 @@ static const struct snd_kcontrol_new tx_adc2_mux =
 
 static const struct snd_kcontrol_new rx_rdac3_mux =
 	SOC_DAPM_ENUM("RDAC3_MUX Mux", rdac3_enum);
+
+#if IS_ENABLED(CONFIG_WCD937X_EXT_SPK)
+static int aux_ext_spk_event(struct snd_soc_dapm_widget *w,
+		     struct snd_kcontrol *control, int event)
+{
+	int mode = g_wcd937x_aux_ext_spk_mode;
+	#if IS_ENABLED(CONFIG_LCT_AUDIO_INFO)
+	g_wcd937x_ext_pa_info = audio_pa_chip_type_get();
+	pr_debug("%s:current pa info->%d, current mode->%d\n", __func__, g_wcd937x_ext_pa_info, mode);
+	#endif
+	switch (event) {
+		case SND_SOC_DAPM_POST_PMU:
+			#if IS_ENABLED(CONFIG_LCT_AUDIO_INFO)
+			if (g_wcd937x_ext_pa_info == PA_CHIP_TYPE_SIPA) {
+				#if IS_ENABLED(CONFIG_SND_SOC_SIPA)
+				sipa_dev_0_pa(true, mode);
+				#endif
+			} else if (g_wcd937x_ext_pa_info == PA_CHIP_TYPE_FSM) {
+				#if IS_ENABLED(CONFIG_SND_SOC_FS15XXX)
+				fsm_dev_0_pa(true, mode);
+				#endif
+			}
+			#endif
+			break;
+		case SND_SOC_DAPM_PRE_PMD:
+			#if IS_ENABLED(CONFIG_LCT_AUDIO_INFO)
+			if (g_wcd937x_ext_pa_info == PA_CHIP_TYPE_SIPA) {
+				#if IS_ENABLED(CONFIG_SND_SOC_SIPA)
+				sipa_dev_0_pa(false, mode);
+				#endif
+			} else if (g_wcd937x_ext_pa_info == PA_CHIP_TYPE_FSM) {
+				#if IS_ENABLED(CONFIG_SND_SOC_FS15XXX)
+				fsm_dev_0_pa(false, mode);
+				#endif
+			}
+			#endif
+			break;
+		default:
+			pr_err("%s: invalid DAPM event %d\n", __func__, event);
+			break;
+	}
+	return 0;
+}
+#endif
 
 static const struct snd_soc_dapm_widget wcd937x_dapm_widgets[] = {
 
@@ -2600,7 +2835,11 @@ static const struct snd_soc_dapm_widget wcd937x_dapm_widgets[] = {
 				wcd937x_codec_enable_micbias_pullup,
 				SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU |
 				SND_SOC_DAPM_POST_PMD),
-
+#if IS_ENABLED(CONFIG_WCD937X_EXT_SPK)
+	SND_SOC_DAPM_OUT_DRV_E("AUX EXT SPK", SND_SOC_NOPM, 0, 0, NULL, 0,
+				aux_ext_spk_event, SND_SOC_DAPM_POST_PMU |
+				SND_SOC_DAPM_PRE_PMD),
+#endif 
 };
 
 static const struct snd_soc_dapm_widget wcd9375_dapm_widgets[] = {
@@ -2715,8 +2954,12 @@ static const struct snd_soc_dapm_route wcd937x_audio_map[] = {
 	{"RDAC4", NULL, "RX3"},
 	{"AUX_RDAC", "Switch", "RDAC4"},
 	{"AUX PGA", NULL, "AUX_RDAC"},
+#if IS_ENABLED(CONFIG_WCD937X_EXT_SPK)
+	{"AUX EXT SPK", NULL, "AUX PGA"},
+	{"AUX", NULL, "AUX EXT SPK"},
+#else
 	{"AUX", NULL, "AUX PGA"},
-
+#endif
 	{"RDAC3_MUX", "RX3", "RX3"},
 	{"RDAC3_MUX", "RX1", "RX1"},
 	{"RDAC3", NULL, "RDAC3_MUX"},
